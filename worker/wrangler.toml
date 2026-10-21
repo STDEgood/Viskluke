@@ -1,0 +1,24 @@
+# Viskluke Address Worker —— 部署配置
+#
+# 用法（需要 Node + npx）：
+#   cd worker
+#   npx wrangler login                     # 浏览器里授权一次
+#   npx wrangler secret put CF_API_TOKEN   # 粘贴 Cloudflare Token（DNS:Edit 就够）
+#   npx wrangler deploy                    # 部署，命令最后会打印 Worker 的 URL
+#
+# 部署完把 URL 填进启动器：
+#   config.json 的 PROXY_URL，或 cloudflare.js 的 BUILTIN_PROXY_URL
+#
+# 注意：Token 千万不要写进这个文件（它会被提交/分发）。
+#       机密用 `wrangler secret put`，明文变量才放 [vars]。
+
+name = "viskluke-dns"
+main = "cloudflare-dns-worker.mjs"
+compatibility_date = "2024-11-01"
+
+[vars]
+# 三个后缀 → 各自的 Zone ID（Cloudflare 域名概览页右侧「API」区可复制）
+# 三个域名都在 eu.cc 的话，三个键填同一个 Zone ID 也可以。
+CF_ZONES = '{"stde.eu.cc":"8e87a98984f83b9be9c7fa6347a9d1d6","yistarline.eu.cc":"5f22c715f88a33f165012ea4aed899d1","ys2video.eu.cc":"2995bd959870e8454b3a85a057a00c22"}'
+ALLOWED_SUFFIXES = "stde.eu.cc,yistarline.eu.cc,ys2video.eu.cc"
+RATE_LIMIT_PER_MIN = "30"

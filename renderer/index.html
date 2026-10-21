@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' file:; script-src 'self' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' data: file: https:; connect-src 'self';" />
+  <link rel="stylesheet" href="style.css" />
+  <title>Viskluke</title>
+</head>
+<body>
+<div class="shell">
+  <!-- ========================= 侧栏（多级菜单） ========================= -->
+  <aside class="rail">
+    <div class="rail-head">
+      <div class="logo">V</div>
+      <span>Viskluke</span>
+    </div>
+
+    <button class="account" id="account-card">
+      <span class="avatar" id="account-avatar">?</span>
+      <span class="account-body">
+        <span class="account-name" id="account-name">未登录</span>
+        <span class="account-kind" id="account-type">点击登录</span>
+      </span>
+    </button>
+
+    <nav class="menu">
+      <div class="menu-group" data-group="instances">
+        <button class="menu-item" data-page="instances"><span>游戏</span><i>›</i></button>
+        <div class="submenu" id="sub-instances"></div>
+      </div>
+
+      <div class="menu-group" data-group="downloads">
+        <button class="menu-item" data-page="downloads"><span>下载</span><i>›</i></button>
+        <div class="submenu">
+          <button class="sub-item" data-page="downloads" data-tab="versions">游戏版本</button>
+          <button class="sub-item" data-page="downloads" data-tab="mods">Mod</button>
+          <button class="sub-item" data-page="downloads" data-tab="resourcepacks">资源包</button>
+          <button class="sub-item" data-page="downloads" data-tab="shaders">光影</button>
+          <button class="sub-item" data-page="downloads" data-tab="modpacks">整合包</button>
+        </div>
+      </div>
+
+      <div class="menu-group" data-group="servers">
+        <button class="menu-item" data-page="servers"><span>服务器</span><i>›</i></button>
+        <div class="submenu" id="sub-servers"></div>
+      </div>
+    </nav>
+
+    <div class="rail-foot">
+      <span class="tiny" id="java-info">Java 检测中…</span>
+      <div class="rail-foot-row">
+        <span class="tiny" id="app-meta">Viskluke</span>
+        <button class="link" id="btn-open-log">日志</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================= 主区域 ========================= -->
+  <main class="stage">
+    <header class="stage-head">
+      <div>
+        <h1 id="page-title">游戏</h1>
+        <p class="sub" id="page-sub">选择一个实例开始游戏</p>
+      </div>
+      <span class="tag" id="cf-badge"></span>
+    </header>
+
+    <!-- ---------------------------- 游戏页 ---------------------------- -->
+    <section class="page" id="page-instances">
+      <div class="empty" id="instance-empty">
+        <p class="empty-title">还没有实例</p>
+        <p class="empty-sub">在「下载 → 游戏版本」里挑一个版本，会自动创建实例</p>
+        <button class="btn" id="btn-go-versions">去挑版本</button>
+      </div>
+
+      <div class="hidden" id="instance-detail">
+        <div class="detail-head">
+          <input class="title-input" id="inst-name" placeholder="实例名称" />
+          <button class="btn primary" id="btn-launch">启动游戏</button>
+        </div>
+
+        <div class="form-row">
+          <label>版本<input id="inst-version" placeholder="1.20.4" /></label>
+          <label>最大内存<input id="inst-max-mem" value="4G" /></label>
+          <label>最小内存<input id="inst-min-mem" value="2G" /></label>
+          <label>Java 路径<input id="inst-java" placeholder="自动检测" /></label>
+        </div>
+
+        <div class="meta-row" id="inst-meta"></div>
+
+        <div class="row-actions">
+          <button class="btn" id="btn-save-instance">保存</button>
+          <button class="btn subtle" id="btn-open-root">打开游戏目录</button>
+          <button class="btn subtle" id="btn-skin">皮肤</button>
+          <button class="btn danger" id="btn-delete-instance">删除实例</button>
+        </div>
+
+        <div class="log-block">
+          <div class="log-head">
+            <span>启动日志</span>
+            <button class="link" id="btn-clear-game-log">清空</button>
+          </div>
+          <pre id="log"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------- 下载页 ---------------------------- -->
+    <section class="page hidden" id="page-downloads">
+      <div class="tabs" id="dl-tabs">
+        <button class="tab active" data-tab="versions">游戏版本</button>
+        <button class="tab" data-tab="mods">Mod</button>
+        <button class="tab" data-tab="resourcepacks">资源包</button>
+        <button class="tab" data-tab="shaders">光影</button>
+        <button class="tab" data-tab="modpacks">整合包</button>
+      </div>
+
+      <div class="toolbar">
+        <input id="dl-search" class="grow" placeholder="搜索名称…" />
+        <input id="dl-version" class="w120" placeholder="游戏版本" value="1.20.4" />
+        <select id="dl-loader" class="w140">
+          <option value="">全部加载器</option>
+          <option value="fabric">Fabric</option>
+          <option value="forge">Forge</option>
+          <option value="quilt">Quilt</option>
+          <option value="neoforge">NeoForge</option>
+        </select>
+        <select id="dl-kind" class="w120 hidden">
+          <option value="release">正式版</option>
+          <option value="snapshot">快照</option>
+          <option value="all">全部</option>
+        </select>
+        <button class="btn subtle" id="dl-refresh">刷新</button>
+      </div>
+
+      <div class="dl-layout">
+        <div class="dl-main">
+          <p class="hint-text" id="dl-tip"></p>
+
+          <div class="progress hidden" id="dl-progress">
+            <div class="progress-bar" id="dl-progress-bar"></div>
+            <span class="tiny" id="dl-progress-text"></span>
+          </div>
+
+          <div class="rows" id="dl-list"></div>
+        </div>
+
+        <aside class="dl-side">
+          <div class="side-head">下载任务 <span class="row-count" id="dl-task-count">0</span></div>
+          <ul class="tasks" id="dl-tasks"></ul>
+          <div class="side-head">下载日志 <button class="link" id="btn-clear-dl-log">清空</button></div>
+          <div class="log" id="dl-log"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------------------------- 服务器页 ---------------------------- -->
+    <section class="page hidden" id="page-servers">
+      <!-- 主操作：只留「前缀 + 一键开服」，其余收进高级设置 -->
+      <div class="row-inline">
+        <label class="stack grow">域名前缀（留空 = 局域网服务器，只有同 WiFi 能进）
+          <input id="srv-prefix" placeholder="myminecraft" autocomplete="off" spellcheck="false" />
+        </label>
+        <code class="address" id="srv-address">填写前缀后自动生成</code>
+        <button class="btn subtle" id="btn-copy-address">复制</button>
+        <button class="btn primary" id="btn-start-server">一键开服</button>
+        <button class="btn subtle" id="btn-stop-server" disabled>停止</button>
+      </div>
+
+      <div class="row-inline">
+        <span class="tag" id="srv-lan-tag">局域网地址检测中…</span>
+        <span class="tag" id="srv-public-tag">公网直连：检测中…</span>
+        <span class="tag" id="cf-inline-state">公网域名：未连接</span>
+        <span class="grow"></span>
+        <button class="link" id="btn-toggle-cf">设置公网域名</button>
+        <button class="link" id="btn-toggle-advanced">高级设置</button>
+      </div>
+
+      <p class="hint-text" id="srv-expose-warn"></p>
+
+      <!-- 联机可达性：新手最需要的诊断 -->
+      <div class="row-inline">
+        <span class="tag" id="net-verdict">联机检查：未检测</span>
+        <span class="grow"></span>
+        <button class="btn subtle" id="btn-net-check">检查我能不能被别人连</button>
+        <button class="btn subtle" id="btn-net-probe">测一下外面能不能连进来</button>
+        <button class="btn subtle hidden" id="btn-net-map">自动映射端口</button>
+        <button class="btn subtle hidden" id="btn-net-unmap">取消映射</button>
+      </div>
+      <ul class="hint-list hidden" id="net-advice"></ul>
+
+      <!-- 自建中继（内网穿透）：没有公网 IP 也能让别人连进来 -->
+      <div class="row-inline">
+        <span class="tag" id="relay-state">内网穿透：未开启</span>
+        <input id="relay-room" class="w220" placeholder="房间号（自动生成）" maxlength="32" />
+        <input id="relay-url" class="grow" placeholder="中继地址（默认 wss://relay.stde.eu.cc）" />
+        <input id="relay-key" class="w220" placeholder="房间口令（可选，建议填）" maxlength="64" />
+        <button class="btn subtle" id="btn-relay-host">开隧道</button>
+        <button class="btn subtle hidden" id="btn-relay-host-stop">停隧道</button>
+        <button class="btn subtle" id="btn-relay-join">我是玩家，加入房间</button>
+        <button class="btn subtle hidden" id="btn-relay-join-stop">停代理</button>
+      </div>
+      <p class="hint-text" id="relay-hint">中继已经内置好了（<code>wss://relay.stde.eu.cc</code>），不用自己部署：开隧道后把房间号告诉朋友，他在启动器里点「加入房间」，MC 里连 <code>127.0.0.1:25566</code> 即可。流量走你自己的 Cloudflare Worker，不经过任何第三方联机工具；想换自己的中继，把地址改成你部署的 <code>wss://</code> 地址即可。</p>
+      <p class="hint-text hidden" id="net-probe-result"></p>
+
+      <!-- 公网域名：默认收起，配好一次以后不用再碰 -->
+      <div class="hidden section-box" id="cf-advanced">
+        <div class="row-inline">
+          <span class="tag" id="cf-state">Cloudflare 未连接</span>
+          <button class="btn subtle" id="btn-cf-token-page">获取 Token</button>
+          <input id="cf-token" type="password" class="grow" placeholder="粘贴 Cloudflare API Token（只需一次）" />
+          <button class="btn" id="btn-cf-connect">连接</button>
+          <button class="btn subtle hidden" id="btn-cf-verify">检测</button>
+          <button class="btn subtle" id="btn-cf-edit-token" title="给已有 Token 加 Zone:Read 权限">改 Token 权限</button>
+        </div>
+        <div class="zones" id="cf-zones"></div>
+        <p class="hint-text" id="cf-error"></p>
+
+        <!-- 域名管理（二级面板）：内置三个之外，可以绑自己的域名 -->
+        <button class="link self-start" id="btn-toggle-domains">管理域名（绑定我自己的域名）</button>
+        <div class="hidden section-box" id="cf-domains">
+          <div class="wrap-list" id="cf-domain-list"></div>
+          <div class="row-inline">
+            <input id="cf-domain-input" class="grow" placeholder="我的域名，如 mydomain.com" autocomplete="off" spellcheck="false" />
+            <input id="cf-domain-zone" class="w220" placeholder="Zone ID（可留空）" autocomplete="off" spellcheck="false" />
+            <button class="btn" id="btn-cf-add-domain">添加</button>
+          </div>
+          <p class="hint-text">
+            自己的域名要先在 Cloudflare 里托管（NS 指过去），Zone ID 在域名概览页右侧「API」区能复制。
+            内置的三个后缀（yistarline / stde / ys2video）会一直保留。
+          </p>
+
+          <div class="row-inline">
+            <input id="cf-manual-input" class="grow" placeholder="DNS 在别处（GNAME / 阿里云…）的域名，如 mydomain.com" autocomplete="off" spellcheck="false" />
+            <button class="btn subtle" id="btn-cf-add-manual">登记手动解析</button>
+          </div>
+          <p class="hint-text">
+            域名没托管在 Cloudflare 时用这个：启动器不会改解析，只在开服时算好「A 记录 / SRV 记录」该填什么，
+            你复制到注册商的 DNS 后台即可。
+          </p>
+        </div>
+      </div>
+
+      <!-- 高级设置 -->
+      <div class="hidden section-box" id="srv-advanced">
+        <div class="form-row">
+          <label>核心
+            <select id="srv-core">
+              <option value="paper" selected>Paper</option>
+              <option value="vanilla">Vanilla</option>
+              <option value="fabric">Fabric</option>
+            </select>
+          </label>
+          <label>版本<input id="srv-version" value="1.20.4" /></label>
+          <label>内存<input id="srv-memory" value="2G" /></label>
+          <label>端口<input id="srv-port" value="25565" /></label>
+          <label>后缀
+            <select id="srv-suffix">
+              <option value="stde.eu.cc" selected>stde.eu.cc</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="row-inline">
+          <label class="check"><input type="checkbox" id="srv-enable-dns" checked /> 创建解析</label>
+          <label class="check"><input type="checkbox" id="srv-online-mode" checked /> 正版验证</label>
+          <label class="check"><input type="checkbox" id="srv-whitelist" checked /> 白名单</label>
+          <label class="check"><input type="checkbox" id="srv-remove-dns" checked /> 关服删解析</label>
+          <button class="btn subtle" id="btn-go-servers" title="刷新列表">刷新</button>
+        </div>
+
+        <label class="stack">白名单玩家（空格 / 逗号分隔，留空等于谁都不许进）
+          <input id="srv-whitelist-players" placeholder="Steve Alex" autocomplete="off" spellcheck="false" />
+        </label>
+      </div>
+
+      <div class="progress hidden" id="srv-progress">
+        <div class="progress-bar" id="srv-progress-bar"></div>
+        <span class="tiny" id="srv-progress-text"></span>
+      </div>
+
+      <div class="hidden" id="server-detail">
+        <div class="detail-head">
+          <h2 id="det-name">—</h2>
+          <span class="tag" id="det-status">已停止</span>
+        </div>
+        <div class="meta-row">
+          <span id="det-core">—</span>
+          <span id="det-version">—</span>
+          <span id="det-memory">—</span>
+          <span>端口 <b id="det-port">—</b></span>
+          <code id="det-address">—</code>
+          <span id="det-dns"></span>
+          <span>局域网 <b id="det-lan">—</b></span>
+          <span id="det-whitelist">—</span>
+        </div>
+        <div class="row-inline">
+          <label class="stack grow">白名单玩家（空格 / 逗号分隔）
+            <input id="det-whitelist-players" placeholder="Steve Alex" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="check"><input type="checkbox" id="det-whitelist-enabled" /> 启用白名单</label>
+          <button class="btn" id="det-whitelist-save">保存白名单</button>
+        </div>
+        <div class="row-actions">
+          <button class="btn" id="det-start">启动</button>
+          <button class="btn subtle" id="det-stop">停止</button>
+          <button class="btn subtle" id="det-dns-sync">重建解析</button>
+          <button class="btn subtle" id="det-dns-remove">删除解析</button>
+          <button class="btn subtle" id="det-copy-lan">复制局域网地址</button>
+          <button class="btn subtle" id="det-folder">打开目录</button>
+          <button class="btn danger" id="det-delete">删除服务器</button>
+        </div>
+      </div>
+
+      <div class="log-block grow">
+        <div class="log-head">
+          <span>控制台</span>
+          <span class="log-tools">
+            <label class="check"><input type="checkbox" id="srv-autoscroll" checked /> 自动滚动</label>
+            <button class="link" id="btn-clear-log">清空</button>
+          </span>
+        </div>
+        <div class="log" id="server-log"></div>
+        <div class="cmd-row">
+          <input id="srv-command" placeholder="输入服务器命令，如 list / op Steve" />
+          <button class="btn" id="btn-send-command">发送</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------- 登录弹窗 ---------------------------- -->
+    <div class="modal hidden" id="auth-modal">
+      <div class="modal-box">
+        <div class="modal-head">
+          <h3>登录</h3>
+          <button class="link" id="btn-close-auth">关闭</button>
+        </div>
+        <div class="tabs">
+          <button class="tab active" data-auth-tab="offline">离线登录</button>
+          <button class="tab" data-auth-tab="microsoft">微软正版</button>
+        </div>
+
+        <div id="auth-offline">
+          <label class="stack">玩家名
+            <input id="offline-name" maxlength="16" placeholder="Steve" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="uuid-line"><span class="tiny">离线 UUID</span><code id="offline-uuid">—</code></div>
+          <p class="hint-text">不需要正版账号。UUID 由玩家名推导，与 HMCL / PCL 一致，可进单机与离线服务器。</p>
+          <button class="btn primary block" id="btn-offline-login">以离线身份登录</button>
+        </div>
+
+        <div class="hidden" id="auth-microsoft">
+          <p class="hint-text" id="auth-status">点击下方按钮，浏览器会打开微软授权页。</p>
+          <div class="uuid-line"><span class="tiny">设备代码</span><code id="user-code">—</code></div>
+          <button class="btn primary block" id="btn-ms-login">开始微软登录</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ---------------------------- 皮肤弹窗 ---------------------------- -->
+    <div class="modal hidden" id="skin-modal">
+      <div class="modal-box wide">
+        <div class="modal-head">
+          <h3>离线皮肤</h3>
+          <button class="link" id="btn-close-skin">关闭</button>
+        </div>
+
+        <div class="row-inline">
+          <span class="tag" id="skin-csl-state">CSL 未安装</span>
+          <button class="btn subtle" id="btn-skin-install-csl">安装 CSL 模组</button>
+          <button class="btn subtle" id="btn-skin-open-folder">打开 CSL 目录</button>
+          <span class="grow"></span>
+          <button class="btn subtle" id="btn-skin-import-cape">导入披风…</button>
+          <button class="btn subtle" id="btn-skin-draw">画一张…</button>
+          <button class="btn subtle" id="btn-skin-import">导入皮肤…</button>
+        </div>
+
+        <div class="row-inline">
+          <label class="stack grow">玩家名
+            <input id="skin-player" maxlength="16" placeholder="Steve" autocomplete="off" spellcheck="false" />
+          </label>
+          <button class="btn primary" id="btn-skin-apply">应用到实例</button>
+          <button class="btn subtle" id="btn-skin-clear">清除该玩家皮肤</button>
+        </div>
+
+        <p class="hint-text" id="skin-tip"></p>
+        <div class="skin-list" id="skin-list"></div>
+      </div>
+    </div>
+
+    <!-- ---------------------------- 皮肤绘制弹窗 ---------------------------- -->
+    <div class="modal hidden" id="editor-modal">
+      <div class="modal-box wide">
+        <div class="modal-head">
+          <h3 id="editor-title">画皮肤</h3>
+          <button class="link" id="btn-close-editor">关闭</button>
+        </div>
+
+        <div class="row-inline">
+          <label class="check"><input type="radio" name="editor-kind" value="skin" checked /> 皮肤 64×64</label>
+          <label class="check"><input type="radio" name="editor-kind" value="cape" /> 披风 64×32</label>
+          <span class="grow"></span>
+          <button class="btn subtle" id="btn-editor-blank">清空</button>
+          <button class="btn subtle" id="btn-editor-template-classic">经典打底</button>
+          <button class="btn subtle" id="btn-editor-template-slim">纤细打底</button>
+        </div>
+
+        <div class="row-inline">
+          <div class="tools">
+            <button class="tool active" data-tool="pencil" title="画笔">✏️</button>
+            <button class="tool" data-tool="eraser" title="橡皮">🩹</button>
+            <button class="tool" data-tool="fill" title="油漆桶">🪣</button>
+            <button class="tool" data-tool="picker" title="吸管">💧</button>
+          </div>
+          <input type="color" id="editor-color" value="#3b82f6" />
+          <div class="palette" id="editor-palette"></div>
+          <span class="grow"></span>
+          <label class="check"><input type="checkbox" id="editor-mirror" /> 左右对称</label>
+          <label class="check"><input type="checkbox" id="editor-grid" checked /> 网格</label>
+          <button class="btn subtle" id="btn-editor-undo" title="撤销">↶</button>
+          <button class="btn subtle" id="btn-editor-redo" title="重做">↷</button>
+        </div>
+
+        <div class="editor-stage">
+          <canvas id="editor-canvas" width="64" height="64"></canvas>
+        </div>
+
+        <div class="row-inline">
+          <input id="editor-name" class="grow" placeholder="给这张皮肤起个名字" maxlength="60" autocomplete="off" />
+          <button class="btn primary" id="btn-editor-save">保存到皮肤库</button>
+        </div>
+        <p class="hint-text" id="editor-hint">
+          左键画、右键擦；「经典/纤细打底」会在标准位置铺好身体各部分，涂改就行。保存后会自动选中，再点「应用到实例」。
+        </p>
+      </div>
+    </div>
+
+    <div class="toasts" id="toasts"></div>
+    <div class="ctx hidden" id="ctx-menu"></div>
+  </main>
+</div>
+
+<script src="skin-editor.js"></script>
+<script src="renderer.js"></script>
+</body>
+</html>

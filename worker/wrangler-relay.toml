@@ -1,0 +1,17 @@
+name = "viskluke-relay"
+main = "cloudflare-relay-worker.mjs"
+compatibility_date = "2024-11-01"
+
+# 房间配对必须落在同一个 Durable Object 实例里，普通 Worker 的内存配不上对
+[[durable_objects.bindings]]
+name = "RELAY_ROOMS"
+class_name = "RelayRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RelayRoom"]
+
+# 用自有域名绑到 Worker 上（workers.dev 在国内常被墙）
+[[routes]]
+pattern = "relay.stde.eu.cc"
+custom_domain = true

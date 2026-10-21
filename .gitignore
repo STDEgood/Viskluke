@@ -1,0 +1,25 @@
+# 依赖与构建产物
+node_modules/
+dist/
+.preview/
+.selftest-data/
+
+# 运行期数据（实例列表 / 皮肤库 / 服务端 / 日志）
+data/
+*.log
+sandbox-fallback.json
+
+# 本机密钥：Cloudflare Token / Zone ID / 中继地址，绝不提交
+config.json
+config.local.json
+.env
+.env.*
+worker/.wrangler/
+*.pem
+*.pfx
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

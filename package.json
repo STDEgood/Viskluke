@@ -1,0 +1,90 @@
+{
+  "name": "viskluke-launcher",
+  "version": "1.0.0",
+  "description": "Viskluke Launcher —— Minecraft 启动器 / 一键开服 / Viskluke Address 自定义域名",
+  "author": "Viskluke",
+  "license": "MIT",
+  "main": "main.js",
+  "scripts": {
+    "start": "node scripts/launch.js",
+    "start:direct": "electron .",
+    "start:safe": "electron . --no-sandbox",
+    "start:debug": "electron . --enable-logging",
+    "probe": "electron scripts/probe.js",
+    "doctor": "node scripts/doctor.js",
+    "selftest": "node scripts/selftest.js",
+    "test:relay": "node scripts/test-relay-live.js",
+    "screenshots": "node scripts/screenshots.js",
+    "icon": "python scripts/make-icon.py",
+    "deploy:worker": "node scripts/deploy-worker.js",
+    "package": "node scripts/package-win.js",
+    "package:dir": "node scripts/package-win.js --dir",
+    "build": "electron-builder",
+    "build:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "adm-zip": "^0.4.16",
+    "axios": "^1.7.0",
+    "minecraft-launcher-core": "^3.18.0",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.viskluke.launcher",
+    "productName": "Viskluke",
+    "copyright": "Viskluke Launcher",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "**/*",
+      "!scripts/**",
+      "!docs/**",
+      "!worker/**",
+      "!config.example.json",
+      "!README.md",
+      "!viskluke_error.log",
+      "!**/.tmp/**",
+      "!**/.preview/**",
+      "!**/.selftest-data/**",
+      "!**/*.log"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Viskluke",
+      "artifactName": "Viskluke-Setup-${version}.${ext}",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "build/icon.png"
+    }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
+  }
+}
