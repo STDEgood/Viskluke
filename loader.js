@@ -27,6 +27,7 @@ const fsp = fs.promises;
 const path = require('path');
 const os = require('os');
 const axios = require('axios');
+const mirror = require('./mirror');
 
 const USER_AGENT = 'Viskluke-Launcher/0.4 (github.com/viskluke)';
 const MANIFEST_URL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
@@ -162,7 +163,7 @@ function usesInstaller(loader) {
 async function listLoaderVersions(loader, mcVersion) {
   const type = assertSupported(loader);
   if (!sanitize(mcVersion)) throw new LoaderError('缺少 Minecraft 版本号');
-  const data = await getJson(PROVIDERS[type].listUrl(sanitize(mcVersion)));
+  const data = await getJson(mirror.resolve(PROVIDERS[type].listUrl(sanitize(mcVersion))));
   const list = Array.isArray(data) ? data : [];
   return list
     .map((item) => {
@@ -186,7 +187,7 @@ async function fetchProfile(loader, mcVersion, loaderVersion) {
   const type = assertSupported(loader);
   const mc = sanitize(mcVersion);
   const lv = sanitize(loaderVersion);
-  const profile = await getJson(PROVIDERS[type].profileUrl(mc, lv));
+  const profile = await getJson(mirror.resolve(PROVIDERS[type].profileUrl(mc, lv)));
   if (!profile || typeof profile !== 'object' || !profile.mainClass) {
     throw new LoaderError(`${PROVIDERS[type].label} ${lv} 的 profile JSON 不完整（缺少 mainClass）`);
   }
@@ -218,14 +219,14 @@ async function loadVanillaJson(mcVersion, options = {}) {
   const now = Date.now();
   if (!manifestCache || now - manifestAt > 10 * 60 * 1000) {
     onLog(`[Viskluke] 读取 Mojang 版本清单…`);
-    manifestCache = await getJson(MANIFEST_URL);
+    manifestCache = await getJson(mirror.manifestUrl());
     manifestAt = now;
   }
   const entry = (manifestCache.versions || []).find((version) => version.id === mc);
   if (!entry) throw new LoaderError(`Mojang 版本清单里没有 ${mc}`);
 
   onLog(`[Viskluke] 下载 ${mc} 的版本描述…`);
-  const json = await getJson(entry.url);
+  const json = await getJson(mirror.resolve(entry.url));
   if (!json || !json.downloads || !Array.isArray(json.libraries)) {
     throw new LoaderError(`${mc} 的版本描述不完整`);
   }
@@ -370,7 +371,7 @@ function isLoaderReady(root, loader, mcVersion, loaderVersion) {
 /** 查 Forge 推荐版本（pack 里没写版本时才用） */
 async function pickForgeVersion(mcVersion, fetchJson = getJson) {
   const mc = sanitize(mcVersion);
-  const data = await fetchJson(INSTALLER_PROVIDERS.forge.promoUrl);
+  const data = await fetchJson(mirror.resolve(INSTALLER_PROVIDERS.forge.promoUrl));
   const promos = (data && data.promos) || {};
   const recommended = promos[`${mc}-recommended`];
   const latest = promos[`${mc}-latest`];
@@ -384,7 +385,7 @@ async function pickForgeVersion(mcVersion, fetchJson = getJson) {
 /** 查 NeoForge 最新版本（版本号形如 20.4.200 / 21.1.66） */
 async function pickNeoForgeVersion(mcVersion, fetchJson = getJson) {
   const mc = sanitize(mcVersion);
-  const data = await fetchJson(INSTALLER_PROVIDERS.neoforge.versionListUrl);
+  const data = await fetchJson(mirror.resolve(INSTALLER_PROVIDERS.neoforge.versionListUrl));
   const all = (data && Array.isArray(data.versions) ? data.versions : []).map(sanitize).filter(Boolean);
   if (!all.length) throw new LoaderError('NeoForge 版本列表为空');
   // NeoForge 的版本号前两段对应 MC（1.20.4 → 20.4），用它过滤
@@ -424,7 +425,7 @@ async function ensureInstaller(options = {}) {
   const dir = path.join(root, 'forge-installers');
   const target = path.join(dir, provider.fileName(mcVersion, loaderVersion));
   // installerUrl 可覆盖：国内镜像加速，或自检时指到本地服务器
-  const url = String(options.installerUrl || '') || provider.installerUrl(mcVersion, loaderVersion);
+  const url = String(options.installerUrl || '') || mirror.resolve(provider.installerUrl(mcVersion, loaderVersion));
 
   let size = 0;
   let downloaded = false;

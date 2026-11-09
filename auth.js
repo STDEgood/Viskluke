@@ -1,9 +1,21 @@
 const axios = require('axios');
 const crypto = require('crypto');
 const { shell } = require('electron');
+const settings = require('./settings');
 
-// ⚠️ 替换成你自己的 Azure 应用 client_id
-const CLIENT_ID = 'YOUR_AZURE_CLIENT_ID';
+// 微软正版登录需要一个 Azure 应用（public client）的 client_id。
+// 这里不内置任何第三方项目的 client_id —— 那是别人的应用注册，随时会被吊销，也不合规。
+// 用户可以在「设置 → 正版登录」里填自己的 client_id，或用环境变量 VISKLUKE_MSA_CLIENT_ID。
+const CLIENT_ID = () =>
+  String(settings.read().msaClientId || process.env.VISKLUKE_MSA_CLIENT_ID || '').trim();
+
+class AuthError extends Error {
+  constructor(message, code = '') {
+    super(message);
+    this.name = 'AuthError';
+    this.code = code;
+  }
+}
 
 const DEVICE_CODE_URL =
   'https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode';
@@ -15,11 +27,20 @@ const MC_AUTH_URL = 'https://api.minecraftservices.com/authentication/login_with
 const MC_PROFILE_URL = 'https://api.minecraftservices.com/minecraft/profile';
 
 async function startDeviceFlow(win) {
+  const clientId = CLIENT_ID();
+  if (!clientId) {
+    return {
+      ok: false,
+      error:
+        '还没有配置正版登录的 Client ID。请到「设置 → 正版登录」里填一个 Azure 应用的 client_id（README 有 3 分钟注册步骤）。',
+      code: 'msa_client_id_missing',
+    };
+  }
   // 1. 请求 device code
   const dcRes = await axios.post(
     DEVICE_CODE_URL,
     new URLSearchParams({
-      client_id: CLIENT_ID,
+      client_id: clientId,
       scope: 'XboxLive.signin offline_access',
     }),
     { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
@@ -46,7 +67,7 @@ async function startDeviceFlow(win) {
         TOKEN_URL,
         new URLSearchParams({
           grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
-          client_id: CLIENT_ID,
+          client_id: clientId,
           device_code,
         }),
         { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } }
@@ -113,11 +134,13 @@ async function exchangeToMinecraft(msAccessToken) {
 }
 
 async function refresh(refreshToken) {
+  const clientId = CLIENT_ID();
+  if (!clientId) throw new AuthError('缺少正版登录的 Client ID', 'msa_client_id_missing');
   const res = await axios.post(
     TOKEN_URL,
     new URLSearchParams({
       grant_type: 'refresh_token',
-      client_id: CLIENT_ID,
+      client_id: clientId,
       refresh_token: refreshToken,
       scope: 'XboxLive.signin offline_access',
     }),
@@ -181,4 +204,17 @@ function offlineLogin(name) {
   }
 }
 
-module.exports = { startDeviceFlow, refresh, offlineLogin, offlineUuid, validateOfflineName };
+/** 正版登录是否已配置 Client ID（UI 用） */
+function hasClientId() {
+  return Boolean(CLIENT_ID());
+}
+
+module.exports = {
+  AuthError,
+  startDeviceFlow,
+  refresh,
+  offlineLogin,
+  offlineUuid,
+  validateOfflineName,
+  hasClientId,
+};

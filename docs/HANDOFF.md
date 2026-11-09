@@ -403,3 +403,72 @@ npm run package:dir   :: 只出免安装目录
    想清就删，下次打包会重新下载
 9. 若以后想回到 NSIS：先解决本机 `System.dll 0xc0000005` 崩溃（换新 NSIS 版本 / 换个打包机），
    再删掉 `npm run package` 里的 Inno 步骤即可
+
+## 11. 2026-10-22 功能更新（下载源 / Java / 浏览器 / 可改界面 / 正版登录）
+
+用户提的六件事，这一轮全部落地了，文件对应关系：
+
+| 功能 | 新文件 / 改动 | 行为 |
+|---|---|---|
+| **下载源可切换** | 新增 [settings.js](settings.js)、[mirror.js](mirror.js)；改 [store.js](store.js) / [loader.js](loader.js) / [launcher.js](launcher.js) | 设置页选 官方 / BMCLAPI / 自定义；非官方源时把版本 JSON 里的地址改写到镜像，MCLC 走 `overrides.url`（meta/resource/maven）；下载页「刷新」带 `force` 绕过 10 分钟缓存 |
+| **Java 免手动配置** | 新增 [java.js](java.js)；[launcher.js](launcher.js) 启动前调用 | 检测顺序：实例路径 → 设置路径 → 启动器下载过的 JRE → `JAVA_HOME` → `PATH` → 常见目录；缺失时从 Adoptium 下载 Temurin JRE（8/17/21/25，按 MC 版本推）到 `<userData>/java/temurin-<major>`，解压用 adm-zip |
+| **正版登录** | [auth.js](auth.js) 改用 `settings.msaClientId` | 设备码流程原本就写好了，但 `client_id` 是 `YOUR_AZURE_CLIENT_ID` 占位符，等于不可用。现在从 settings/环境变量读；设置页可填；未配置时登录弹窗提示并跳设置。README 3.2 有 Azure 注册 3 步 |
+| **可编辑前端** | [main.js](main.js) 的 `ensureUiDir()` | 首次启动把 `renderer/` 复制到 `<userData>/ui`，之后加载这份；打包后改 `ui/index.html`、`ui/style.css` 即可换主题。设置页有「打开界面目录 / 恢复默认界面」；`VISKLUKE_UI_DIR` 可覆盖 |
+| **内置浏览器** | [main.js](main.js) webview 管控 + 下载；[renderer/index.html](renderer/index.html) 新页面；[renderer.js](renderer.js) 标签页逻辑 | `<webview>` 用独立分区 `persist:viskluke-browser`；主进程 `will-attach-webview` 强制去 preload / 沙箱 / 只允许 http(s)；下载落到 `<userData>/downloads`，完成后弹窗导入实例（mods / resourcepacks / shaderpacks / modpacks） |
+| **首页美化 + 窗口** | [renderer/index.html](renderer/index.html) + [style.css](renderer/style.css) | 加 Hero 卡片（四个快捷入口）；窗口 1180×780 → **1080×720**，最小 940×600；窄屏侧栏 208px |
+
+### 11.1 已知取舍 / 下一轮
+
+- **版本号**：这一轮的功能（下载源/Java/浏览器/可改界面/正版登录）是破坏性新增，
+  `package.json` 从 1.0.0 → **1.1.0**；安装包会变成 `Viskluke-Setup-1.1.0.exe`。
+- **`modpack` 类型的本地导入**只是把文件放进 `modpacks/`，真正的「一键安装本地 .mrpack」还没接
+  （现有安装器要 Modrinth 项目 ID）；提示文案已写清楚。
+- **Java 自动下载只支持 Windows**（zip）；mac/linux 只检测不下载。
+- 内嵌浏览器用 `<webview>`（Electron 里仍可用但官方更推荐 WebContentsView）——
+  选它是为了标签页切换最简单；以后要做多窗口/下载管理器再换。
+- **界面目录**：优先 `<userData>/ui`；userData 不可写（本机会被安全软件拦）时依次退到
+  `exe 同级目录/ui`、`%TEMP%/viskluke-ui`，最后才用内置只读目录。
+  设置页显示的路径就是实际生效的那个。
+- 自检 99 项全绿；`npm run screenshots` 现在会截 **10 张**（新增 `settings.png`、`browser.png`），
+  且会检查渲染层 console.error / 未捕获异常（本轮 0 / 0）。
+
+### 11.2 1.1.1 补丁（用户反馈后）
+
+- **首页去掉推广式 Hero**：不再有「一个窗口玩完整个 Minecraft」+ 四张快捷卡；
+  改成纯动效美化：顶部呼吸光（`.stage::before`）、菜单指示条生长、按钮按下反馈、
+  列表 hover 抬升、空状态文字依次浮入，并支持 `prefers-reduced-motion`。
+- **内置浏览器默认 Bing**：`settings.browserHome = https://www.bing.com`，
+  地址栏输入非网址的关键词直接走 `https://www.bing.com/search?q=...`。
+- **便携包文件名改 ASCII**：`Start Viskluke.cmd` + `README.txt`。
+  原因：adm-zip 写中文文件名时没有 UTF-8 标志位，7za / 资源管理器解压会变乱码，
+  用户找不到启动脚本；中文说明改放 README.txt（UTF-8）。
+  启动脚本加了「没有 Viskluke.exe 就提示先解压」的检查。
+- **`打开界面目录` 兜底**：`shell.openPath` 在受限环境会失败（本机截图里那个
+  「Windows 无法访问指定设备、路径或文件」就是它，不是 index.html 坏了——
+  界面本身就是从那个目录加载的）。现在失败会改用 `showItemInFolder`，再不行把路径返回给 UI，
+  由界面复制到剪贴板并提示。
+- 正式版隐藏 Electron 默认菜单栏（File/Edit/View…）。
+- 版本 1.1.0 → **1.1.1**。
+
+### 11.3 1.1.2：内置浏览器里「链接点不动」
+
+现象：Bing 搜索结果点了没反应。
+
+原因：Bing（以及很多站点）的结果链接是 `target="_blank"`。`<webview>` 默认**不允许多窗口**，
+这种点击会被直接吞掉，既不导航也不报错。之前的 `setWindowOpenHandler` 因为没有
+`allowpopups` 属性，根本不会被调用。
+
+修法：
+- webview 加 `allowpopups`；
+- 主进程的 `setWindowOpenHandler` 把 `http(s)` 的 URL 转成 `browser:open-tab` 事件，
+  界面新开标签页（`about:blank` 之类直接忽略），仍然 `action: 'deny'`，不会弹真窗口；
+- 顺带 `scripts/screenshots.js` 设置 `VISKLUKE_UI_DIR=<项目>/renderer`，避免开发时
+  被 `userData/ui` 的旧副本挡住 UI 改动。
+
+验证：CDP 里真实点击 Bing 的 `target="_blank"` 链接（“图片”），标签页数 1 → 2，
+新标签加载 `https://cn.bing.com/images/search?...`，原标签保持不动。
+版本 1.1.1 → **1.1.2**。
+
+
+
+

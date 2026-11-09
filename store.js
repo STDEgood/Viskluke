@@ -17,9 +17,9 @@ const path = require('path');
 const axios = require('axios');
 const launcher = require('./launcher');
 const modpack = require('./modpack');
+const mirror = require('./mirror');
 
 const USER_AGENT = 'Viskluke-Launcher/0.3 (github.com/viskluke)';
-const MANIFEST_URL = 'https://launchermeta.mojang.com/mc/game/version_manifest_v2.json';
 const MODRINTH = 'https://api.modrinth.com/v2';
 
 const TARGET_DIR = {
@@ -31,6 +31,7 @@ const TARGET_DIR = {
 
 let manifestCache = null;
 let manifestAt = 0;
+let manifestSource = '';
 
 class StoreError extends Error {
   constructor(message, extra = {}) {
@@ -77,21 +78,31 @@ async function getJson(url, options = {}) {
 // Minecraft 版本
 // ---------------------------------------------------------------------------
 
-async function loadManifest() {
+async function loadManifest(options = {}) {
   const now = Date.now();
-  if (manifestCache && now - manifestAt < 10 * 60 * 1000) return manifestCache;
-  const data = await getJson(MANIFEST_URL, { timeout: 20000 });
+  const src = mirror.active();
+  // 换下载源后要立刻重新拉，不能继续用旧源的内存缓存
+  if (
+    !options.force &&
+    manifestCache &&
+    manifestSource === `${src.id}:${src.meta}` &&
+    now - manifestAt < 10 * 60 * 1000
+  ) {
+    return manifestCache;
+  }
+  const data = await getJson(mirror.manifestUrl(src), { timeout: 20000 });
   manifestCache = data;
   manifestAt = now;
+  manifestSource = `${src.id}:${src.meta}`;
   return data;
 }
 
 /**
- * @param {{ type?: 'release'|'snapshot'|'old_beta'|'old_alpha'|'all', limit?: number, query?: string, root?: string }} options
+ * @param {{ type?: 'release'|'snapshot'|'old_beta'|'old_alpha'|'all', limit?: number, query?: string, root?: string, force?: boolean }} options
  */
 async function listVersions(options = {}) {
-  const { type = 'release', limit = 60, query = '', root = '' } = options;
-  const manifest = await loadManifest();
+  const { type = 'release', limit = 60, query = '', root = '', force = false } = options;
+  const manifest = await loadManifest({ force });
   const keyword = String(query || '').trim().toLowerCase();
 
   const installed = new Set();
@@ -107,6 +118,7 @@ async function listVersions(options = {}) {
 
   return {
     latest: manifest.latest || {},
+    source: mirror.status(),
     versions: (manifest.versions || [])
       .filter((v) => (type === 'all' ? true : v.type === type))
       .filter((v) => (keyword ? v.id.toLowerCase().includes(keyword) : true))

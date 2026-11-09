@@ -45,6 +45,14 @@
         <button class="menu-item" data-page="servers"><span>服务器</span><i>›</i></button>
         <div class="submenu" id="sub-servers"></div>
       </div>
+
+      <div class="menu-group" data-group="browser">
+        <button class="menu-item" data-page="browser"><span>浏览器</span><i>›</i></button>
+      </div>
+
+      <div class="menu-group" data-group="settings">
+        <button class="menu-item" data-page="settings"><span>设置</span><i>›</i></button>
+      </div>
     </nav>
 
     <div class="rail-foot">
@@ -328,6 +336,128 @@
         </div>
       </div>
     </section>
+
+    <!-- ---------------------------- 浏览器页 ---------------------------- -->
+    <section class="page hidden" id="page-browser">
+      <div class="browser-shell">
+        <div class="browser-tabs" id="browser-tabs">
+          <button class="browser-newtab" id="browser-newtab" title="新建标签页">＋</button>
+        </div>
+
+        <div class="browser-bar">
+          <button class="icon-btn" id="browser-back" title="后退">‹</button>
+          <button class="icon-btn" id="browser-forward" title="前进">›</button>
+          <button class="icon-btn" id="browser-reload" title="刷新">⟳</button>
+          <input id="browser-url" class="browser-url" placeholder="输入网址，或输入关键词用 Bing 搜索…" spellcheck="false" />
+          <button class="btn subtle" id="browser-go">打开</button>
+          <button class="icon-btn" id="browser-home" title="浏览器首页">⌂</button>
+          <button class="icon-btn" id="browser-external" title="用系统浏览器打开">↗</button>
+        </div>
+
+        <div class="browser-views" id="browser-views"></div>
+
+        <div class="browser-empty" id="browser-empty">
+          <p class="browser-empty-title">输入网址，或直接搜索</p>
+          <p class="hint-text">下载的 .jar / .zip / .mrpack 会问你要装进哪个实例。</p>
+          <div class="chips">
+            <button class="chip" data-url="https://modrinth.com/mods">Modrinth Mod</button>
+            <button class="chip" data-url="https://modrinth.com/modpacks">Modrinth 整合包</button>
+            <button class="chip" data-url="https://www.curseforge.com/minecraft">CurseForge</button>
+            <button class="chip" data-url="https://zh.minecraft.wiki/">Minecraft Wiki</button>
+          </div>
+        </div>
+
+        <div class="browser-status">
+          <span class="tiny" id="browser-downloads">下载会存到「下载目录」，完成后可一键导入实例</span>
+          <span class="grow"></span>
+          <button class="link" id="browser-open-downloads">打开下载目录</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------------------------- 设置页 ---------------------------- -->
+    <section class="page hidden" id="page-settings">
+      <div class="settings-grid">
+        <section class="settings-card">
+          <h3>下载源</h3>
+          <p class="hint-text">官方源慢就换镜像。改完会立刻生效，游戏文件从镜像下载。</p>
+          <label class="field">下载源
+            <select id="set-download-source">
+              <option value="mojang">官方 Mojang（默认）</option>
+              <option value="bmclapi">BMCLAPI 镜像（国内推荐）</option>
+              <option value="custom">自定义镜像</option>
+            </select>
+          </label>
+          <label class="field hidden" id="set-custom-wrap">镜像根地址
+            <input id="set-custom-mirror" placeholder="https://你的反代地址" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="row-actions">
+            <button class="btn primary" id="set-save-mirror">保存并测速</button>
+            <span class="tiny" id="set-mirror-state"></span>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <h3>Java 环境</h3>
+          <p class="hint-text">启动器会自动找本机 Java；找不到就下载一个（Adoptium Temurin JRE），不用手动配。</p>
+          <div class="tiny" id="set-java-state">检测中…</div>
+          <div class="row-actions">
+            <button class="btn subtle" id="set-java-detect">重新检测</button>
+            <button class="btn" id="set-java-auto">自动下载缺失的 Java</button>
+            <button class="btn subtle" id="set-java-open">打开 Java 目录</button>
+          </div>
+          <pre class="mini-log" id="set-java-log"></pre>
+        </section>
+
+        <section class="settings-card">
+          <h3>界面自定义</h3>
+          <p class="hint-text">界面文件在 userData/ui 下，打包后也能直接改：index.html、style.css。</p>
+          <code class="tiny" id="set-ui-dir"></code>
+          <div class="row-actions">
+            <button class="btn subtle" id="set-ui-open">打开界面目录</button>
+            <button class="btn subtle" id="set-ui-reset">恢复默认界面</button>
+          </div>
+        </section>
+
+        <section class="settings-card">
+          <h3>正版登录</h3>
+          <p class="hint-text">微软设备码登录需要一个 Azure 应用的 client_id（免费注册，README 有步骤）。</p>
+          <label class="field">Client ID
+            <input id="set-msa-client" placeholder="Azure 应用的 Application (client) ID" autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="row-actions">
+            <button class="btn" id="set-msa-save">保存</button>
+            <span class="tiny" id="set-msa-state"></span>
+          </div>
+        </section>
+      </div>
+    </section>
+
+    <!-- ---------------------------- 导入下载文件弹窗 ---------------------------- -->
+    <div class="modal hidden" id="import-modal">
+      <div class="modal-box">
+        <div class="modal-head">
+          <h3>导入下载的文件</h3>
+          <button class="link" id="import-cancel">关闭</button>
+        </div>
+        <p class="tiny" id="import-file"></p>
+        <label class="field">装到哪个实例
+          <select id="import-instance"></select>
+        </label>
+        <label class="field">文件类型
+          <select id="import-kind">
+            <option value="mod">Mod（.jar）</option>
+            <option value="resourcepack">资源包（.zip）</option>
+            <option value="shader">光影（.zip）</option>
+            <option value="modpack">整合包（.mrpack）</option>
+          </select>
+        </label>
+        <div class="row-actions">
+          <button class="btn primary" id="import-confirm">导入</button>
+        </div>
+        <p class="tiny" id="import-result"></p>
+      </div>
+    </div>
 
     <!-- ---------------------------- 登录弹窗 ---------------------------- -->
     <div class="modal hidden" id="auth-modal">

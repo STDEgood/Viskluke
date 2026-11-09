@@ -17,6 +17,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const crypto = require('crypto');
 
 const APP_DIR_NAME = 'viskluke-launcher'; // 与 package.json 的 name 一致（userData 目录名）
 const LOG_NAME = 'viskluke_error.log';
@@ -126,7 +127,7 @@ if (!electronApi || typeof electronApi === 'string') {
   process.exit(1);
 }
 
-const { app, BrowserWindow, ipcMain, shell, dialog } = electronApi;
+const { app, BrowserWindow, ipcMain, shell, dialog, session, Menu } = electronApi;
 
 if (!app) {
   log('FATAL', 'electron 模块已加载，但 app 为空，无法继续。');
@@ -276,6 +277,9 @@ const modpackInstaller = require('./modpack-instance');
 const skin = require('./skin');
 const netcheck = require('./netcheck');
 const relay = require('./relay');
+const settings = require('./settings');
+const mirror = require('./mirror');
+const java = require('./java');
 
 // 中继（内网穿透）运行时状态：同一时刻各一个
 let relayHost = null;
@@ -289,21 +293,194 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // 5. 窗口
 // ---------------------------------------------------------------------------
 
-const INDEX_FILE = path.join(__dirname, 'renderer', 'index.html');
+// 界面目录：默认用 <userData>/ui（从 app 里拷过去），用户可以直接改 index.html / style.css
+// 做自定义主题；VISKLUKE_UI_DIR 可以指到任意目录（开发者改 UI 用）。
+let UI_DIR = '';
+const UI_MANIFEST = '.viskluke-ui-manifest.json';
+
+function listFilesRecursive(dir, base = dir, out = []) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) listFilesRecursive(full, base, out);
+    else out.push(path.relative(base, full).split(path.sep).join('/'));
+  }
+  return out;
+}
+
+function sha256File(file) {
+  return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+function readUiManifest(file) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    return null;
+  }
+}
+
+function writeUiManifest(source, target, version) {
+  const files = {};
+  for (const rel of listFilesRecursive(source)) files[rel] = sha256File(path.join(source, rel));
+  fs.writeFileSync(path.join(target, UI_MANIFEST), `${JSON.stringify({ version, files }, null, 2)}\n`, 'utf8');
+}
+
+/**
+ * 升级时刷新内置界面：只覆盖「用户没改过」的文件（哈希和旧清单一致才覆盖），
+ * 这样既能让用户拿到新功能，又不会把他自定义的主题冲掉。
+ */
+function syncUiDir(source, target, oldManifest) {
+  for (const rel of listFilesRecursive(source)) {
+    const src = path.join(source, rel);
+    const dst = path.join(target, rel);
+    const known = oldManifest && oldManifest.files ? oldManifest.files[rel] : null;
+    if (fs.existsSync(dst) && known && sha256File(dst) !== known) continue; // 用户改过，保留
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.writeFileSync(dst, fs.readFileSync(src));
+  }
+}
+
+function copyDirSync(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const src = path.join(from, entry.name);
+    const dst = path.join(to, entry.name);
+    if (entry.isDirectory()) copyDirSync(src, dst);
+    // 用 read+write 而不是 copyFileSync：打包后 from 在 app.asar 里，
+    // copyFileSync 对 asar 虚拟路径支持不稳，读写缓冲最可靠
+    else fs.writeFileSync(dst, fs.readFileSync(src));
+  }
+}
+
+function ensureUiDir() {
+  if (UI_DIR) return UI_DIR;
+  const override = String(process.env.VISKLUKE_UI_DIR || '').trim();
+  if (override && fs.existsSync(path.join(override, 'index.html'))) {
+    UI_DIR = override;
+    log('UI', `使用环境变量指定的界面目录：${UI_DIR}`);
+    return UI_DIR;
+  }
+
+  const source = path.join(__dirname, 'renderer');
+  const version = app.getVersion();
+  // 依次尝试可写目录：userData → exe 同级 → 临时目录（安全软件可能拦前两个）
+  const candidates = [];
+  try {
+    candidates.push(path.join(app.getPath('userData'), 'ui'));
+  } catch {
+    /* ignore */
+  }
+  candidates.push(path.join(path.dirname(process.execPath), 'ui'));
+  candidates.push(path.join(os.tmpdir(), 'viskluke-ui'));
+
+  for (const target of candidates) {
+    try {
+      const index = path.join(target, 'index.html');
+      const manifest = readUiManifest(path.join(target, UI_MANIFEST));
+      if (!fs.existsSync(index)) {
+        copyDirSync(source, target);
+        log('UI', `首次复制界面到：${target}`);
+      } else if (!manifest || manifest.version !== version) {
+        syncUiDir(source, target, manifest);
+        log('UI', `界面已随版本刷新（${manifest ? manifest.version : '无标记'} → ${version}）：${target}`);
+      }
+      if (fs.existsSync(index)) {
+        writeUiManifest(source, target, version);
+        UI_DIR = target;
+        log('UI', `界面目录：${UI_DIR}`);
+        return UI_DIR;
+      }
+    } catch (error) {
+      log('UI', `界面目录不可用（${target}）：${error.code || error.message}`);
+    }
+  }
+
+  // 都不行就退回内置目录（只读，但至少能启动）
+  UI_DIR = source;
+  log('UI', `所有可写目录都失败，使用内置界面：${UI_DIR}`);
+  return UI_DIR;
+}
+
+const INDEX_FILE = () => path.join(ensureUiDir(), 'index.html');
 const PRELOAD_FILE = path.join(__dirname, 'preload.js');
+const BROWSER_PARTITION = 'persist:viskluke-browser';
+
+function sendToRenderer(channel, payload) {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.webContents.send(channel, payload);
+  } catch {
+    /* 窗口正在关闭 */
+  }
+}
+
+function uniquePath(dir, filename) {
+  const ext = path.extname(filename);
+  const base = path.basename(filename, ext);
+  let candidate = path.join(dir, filename);
+  let index = 1;
+  while (fs.existsSync(candidate)) {
+    candidate = path.join(dir, `${base} (${index})${ext}`);
+    index += 1;
+  }
+  return candidate;
+}
+
+/** 内置浏览器的下载：统一存到 <userData>/downloads，并通知界面 */
+function setupBrowserDownloads() {
+  const dir = path.join(app.getPath('userData'), 'downloads');
+  fs.mkdirSync(dir, { recursive: true });
+  const sess = session.fromPartition(BROWSER_PARTITION);
+  sess.on('will-download', (_event, item) => {
+    const filename = item.getFilename() || 'download.bin';
+    const savePath = uniquePath(dir, filename);
+    item.setSavePath(savePath);
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    sendToRenderer('browser:download', {
+      id,
+      name: filename,
+      path: savePath,
+      state: 'started',
+      totalBytes: item.getTotalBytes(),
+      receivedBytes: 0,
+    });
+    item.on('updated', (_e, state) => {
+      sendToRenderer('browser:download', {
+        id,
+        name: filename,
+        path: savePath,
+        state: state === 'interrupted' ? 'failed' : 'progress',
+        totalBytes: item.getTotalBytes(),
+        receivedBytes: item.getReceivedBytes(),
+      });
+    });
+    item.once('done', (_e, state) => {
+      sendToRenderer('browser:download', {
+        id,
+        name: filename,
+        path: savePath,
+        state: state === 'completed' ? 'done' : 'failed',
+        totalBytes: item.getTotalBytes(),
+        receivedBytes: item.getReceivedBytes(),
+      });
+    });
+  });
+  return dir;
+}
 // 开发时用 build/icon.ico（打包后 electron-builder 会把图标嵌进 exe，这里也带上以防万一）
 const ICON_FILE = ['icon.ico', 'icon.png']
   .map((name) => path.join(__dirname, 'build', name))
   .find((file) => fs.existsSync(file));
 
 function createMainWindow() {
-  log('WINDOW', `创建窗口 index=${INDEX_FILE} exists=${fs.existsSync(INDEX_FILE)} preloadExists=${fs.existsSync(PRELOAD_FILE)}`);
+  const uiIndex = INDEX_FILE();
+  log('WINDOW', `创建窗口 index=${uiIndex} exists=${fs.existsSync(uiIndex)} preloadExists=${fs.existsSync(PRELOAD_FILE)}`);
 
   mainWindow = new BrowserWindow({
-    width: 1180,
-    height: 780,
-    minWidth: 960,
-    minHeight: 620,
+    width: 1080,
+    height: 720,
+    minWidth: 940,
+    minHeight: 600,
     title: 'Viskluke',
     backgroundColor: '#1e1e2e',
     ...(ICON_FILE ? { icon: ICON_FILE } : {}),
@@ -313,8 +490,20 @@ function createMainWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: false,
+      // 内置浏览器用 <webview>；host 侧由 will-attach-webview 统一收紧权限
+      webviewTag: true,
     },
   });
+
+  // 正式版隐藏 Electron 默认菜单栏（File/Edit/View…），界面更干净
+  if (app.isPackaged) {
+    try {
+      Menu.setApplicationMenu(null);
+      mainWindow.setMenuBarVisibility(false);
+    } catch {
+      /* ignore */
+    }
+  }
 
   mainWindow.once('ready-to-show', () => {
     log('WINDOW', 'ready-to-show，显示窗口');
@@ -343,18 +532,43 @@ function createMainWindow() {
   mainWindow.webContents.on('did-fail-load', (_e, code, description, url) => {
     log('WINDOW', `页面加载失败 code=${code} desc=${description} url=${url}`);
     try {
-      dialog.showErrorBox('界面加载失败', `无法加载：\n${INDEX_FILE}\n\n${description} (${code})`);
+      dialog.showErrorBox('界面加载失败', `无法加载：\n${uiIndex}\n\n${description} (${code})`);
     } catch {
       /* ignore */
     }
   });
 
+  // 内置浏览器：收紧 webview 权限（不给 preload / node / 本地文件）
+  mainWindow.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.sandbox = true;
+    webPreferences.webSecurity = true;
+    const target = String(params.src || '');
+    if (!/^https?:\/\//i.test(target)) event.preventDefault();
+  });
+
+  // webview 里点开新窗口（target=_blank / window.open）→ 交给界面新开一个标签页
+  mainWindow.webContents.on('did-attach-webview', (_event, contents) => {
+    contents.setWindowOpenHandler(({ url }) => {
+      const target = String(url || '');
+      if (!/^https?:\/\//i.test(target)) return { action: 'deny' }; // about:blank 之类直接忽略
+      log('BROWSER', `页面请求新窗口：${target}`);
+      sendToRenderer('browser:open-tab', { url: target });
+      return { action: 'deny' };
+    });
+    contents.on('will-navigate', (event, url) => {
+      if (!/^https?:\/\//i.test(url)) event.preventDefault();
+    });
+  });
+
   servers.attachWindow(mainWindow);
 
-  mainWindow.loadFile(INDEX_FILE).catch((error) => {
+  mainWindow.loadFile(uiIndex).catch((error) => {
     log('WINDOW', `loadFile 失败：${describeError(error)}`);
     try {
-      dialog.showErrorBox('界面加载失败', `${INDEX_FILE}\n\n${error.message}`);
+      dialog.showErrorBox('界面加载失败', `${uiIndex}\n\n${error.message}`);
     } catch {
       /* ignore */
     }
@@ -400,6 +614,10 @@ function registerIpc() {
     logFile: ensureLogFile(),
     serverRoot: path.join(app.getPath('userData'), 'servers'),
     configFile: cloudflare.status().configFile || null,
+    uiDir: ensureUiDir(),
+    settingsFile: settings.file(),
+    downloadsDir: path.join(app.getPath('userData'), 'downloads'),
+    downloadSource: mirror.status().source,
   }));
 
   handle('app:open-log', async () => {
@@ -677,6 +895,121 @@ function registerIpc() {
   handle('cf:remove-manual-zone', (_event, payload = {}) => cloudflare.removeManualZone(payload.suffix));
   handle('cf:open-token-page', () => shell.openExternal(cloudflare.TOKEN_TEMPLATE_URL));
 
+  // ---------- 设置 / 下载源 / Java / 自定义界面 ----------
+  handle('settings:get', () => ({
+    settings: settings.read(),
+    settingsFile: settings.file(),
+    mirror: mirror.status(),
+    uiDir: ensureUiDir(),
+    msaConfigured: auth.hasClientId(),
+  }));
+  handle('settings:set', (_event, payload = {}) => {
+    const patch = {};
+    for (const key of ['downloadSource', 'customMirror', 'javaPath', 'msaClientId', 'browserHome']) {
+      if (payload[key] !== undefined) patch[key] = String(payload[key]);
+    }
+    const next = settings.write(patch);
+    log('SETTINGS', `已更新：${Object.keys(patch).join(', ') || '(无)'}`);
+    return { ok: true, settings: next, mirror: mirror.status() };
+  });
+  handle('mirror:test', async () => {
+    const src = mirror.active();
+    const url = mirror.manifestUrl(src);
+    const started = Date.now();
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
+      headers: { 'user-agent': 'Viskluke-Launcher/1.0 (mirror test)' },
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const json = await response.json();
+    return {
+      ok: true,
+      source: src.label,
+      url,
+      ms: Date.now() - started,
+      latest: (json.latest || {}).release || '',
+      count: (json.versions || []).length,
+    };
+  });
+  handle('java:status', () => java.status());
+  handle('java:detect', () => java.detect({ force: true }));
+  handle('java:install', (_event, payload = {}) =>
+    java.installMajor(Number(payload.major) || 17, {
+      onLog: (line) => sendToRenderer('java:log', line),
+      onProgress: (progress) => sendToRenderer('java:progress', progress),
+    })
+  );
+  handle('ui:dir', () => ({ dir: ensureUiDir() }));
+  handle('ui:open', async () => {
+    const dir = ensureUiDir();
+    const error = await shell.openPath(dir);
+    if (!error) return { ok: true, dir };
+    // 某些环境（安全软件拦截 / 受限令牌）openPath 会失败；
+    // 退而求其次用“在文件夹中显示”，再不行就把路径还给界面。
+    try {
+      shell.showItemInFolder(path.join(dir, 'index.html'));
+      return { ok: true, dir, fallback: true };
+    } catch {
+      return { ok: false, dir, error };
+    }
+  });
+  handle('ui:reset', () => {
+    const dir = ensureUiDir();
+    const source = path.join(__dirname, 'renderer');
+    if (dir === source) throw new Error('当前用的是内置目录，无法重置');
+    fs.rmSync(dir, { recursive: true, force: true });
+    copyDirSync(source, dir);
+    writeUiManifest(source, dir, app.getVersion());
+    return { ok: true, dir };
+  });
+  handle('auth:client-id', () => ({
+    configured: auth.hasClientId(),
+    clientId: settings.read().msaClientId || '',
+  }));
+
+  // ---------- 内置浏览器 ----------
+  handle('browser:open-downloads', async () => {
+    const dir = path.join(app.getPath('userData'), 'downloads');
+    fs.mkdirSync(dir, { recursive: true });
+    const error = await shell.openPath(dir);
+    return { ok: !error, dir, error };
+  });
+  handle('browser:open-external', (_event, url) => {
+    const target = String(url || '');
+    if (!/^https?:\/\//i.test(target)) throw new Error('只允许打开 http/https 链接');
+    return shell.openExternal(target);
+  });
+  handle('mods:import', (_event, payload = {}) => {
+    const filePath = String(payload.filePath || '');
+    if (!filePath || !fs.existsSync(filePath)) throw new Error('文件不存在（可能下载失败或被移走）');
+    const instance = resolveInstance(payload);
+    if (!instance) throw new Error('先在「游戏」里选一个实例，再导入');
+    const kinds = {
+      mod: 'mods',
+      resourcepack: 'resourcepacks',
+      shader: 'shaderpacks',
+      modpack: 'modpacks',
+    };
+    const sub = kinds[payload.kind];
+    if (!sub) throw new Error('未知的导入类型');
+    const { root } = launcher.ensureGameRoot(instance);
+    const dir = path.join(root, sub);
+    fs.mkdirSync(dir, { recursive: true });
+    const target = path.join(dir, path.basename(filePath));
+    fs.copyFileSync(filePath, target);
+    log('IMPORT', `${path.basename(filePath)} → ${target}`);
+    return {
+      ok: true,
+      path: target,
+      root,
+      kind: payload.kind,
+      note:
+        payload.kind === 'modpack'
+          ? '整合包文件已放进 modpacks/；本地 .mrpack 的“一键安装”还没接，先在「下载 → 整合包」里安装。'
+          : '',
+    };
+  });
+
   // ---------- 打开外部链接 ----------
   handle('shell:open', (_event, url) => {
     const target = String(url || '');
@@ -726,6 +1059,12 @@ app.whenReady().then(
       log('BOOT', `创建 userData 目录失败：${describeError(error)}`);
     }
     registerIpc();
+    try {
+      const dir = setupBrowserDownloads();
+      log('BROWSER', `浏览器下载目录：${dir}`);
+    } catch (error) {
+      log('BROWSER', `下载目录初始化失败：${describeError(error)}`);
+    }
     createMainWindow();
 
     app.on('activate', () => {

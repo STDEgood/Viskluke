@@ -23,6 +23,8 @@ const os = require('os');
 const path = require('path');
 const { app } = require('electron');
 const loader = require('./loader');
+const mirror = require('./mirror');
+const java = require('./java');
 
 const SUB_DIRS = ['versions', 'mods', 'resourcepacks', 'shaderpacks', 'saves', 'logs'];
 
@@ -192,6 +194,12 @@ async function launch(config, win) {
         onLog: (msg) => safeSend(win, 'launch:log', String(msg)),
       });
       mclcVersion = { number: prepared.id, custom: prepared.id, type: 'release' };
+      // 换了下载源的话，把刚生成的加载器版本 JSON 里的库地址也改到镜像
+      try {
+        mirror.rewriteVersionFile(path.join(root, 'versions', prepared.id, `${prepared.id}.json`));
+      } catch {
+        /* 改不了就按官方地址下（能用，只是慢） */
+      }
       loaderInfo = {
         type: prepared.loader,
         version: prepared.loaderVersion,
@@ -203,6 +211,42 @@ async function launch(config, win) {
         'launch:log',
         `[Viskluke] 启动版本：${prepared.id}（Minecraft ${version} + ${prepared.loader} ${prepared.loaderVersion}）`
       );
+    }
+  }
+
+  // ---- Java：实例/设置里的路径 → 自动检测 → 自动下载 ----
+  let javaPath = String(config.javaPath || '').trim();
+  if (!javaPath || !fs.existsSync(javaPath)) {
+    try {
+      const ensured = await java.ensureForVersion(version, {
+        onLog: (msg) => safeSend(win, 'launch:log', String(msg)),
+        onProgress: ({ percent }) => {
+          if (percent != null) safeSend(win, 'launch:log', `[Java] 下载 ${percent}%`);
+        },
+      });
+      if (ensured && ensured.path) javaPath = ensured.path;
+    } catch (error) {
+      if (!javaPath) {
+        throw new Error(
+          `没有可用的 Java：${error.message}\n` +
+            '可以在「设置 → Java 环境」里点「自动下载」，或手动指定已安装的 java.exe。'
+        );
+      }
+      safeSend(win, 'launch:log', `[Java] 自动准备失败，继续用 ${javaPath}：${error.message}`);
+    }
+  }
+
+  // ---- 下载源：非官方源时改写版本 JSON + 让 MCLC 直接走镜像 ----
+  const source = mirror.active();
+  if (source.id !== 'mojang') {
+    try {
+      await mirror.prepareVersionJson(root, version, {
+        onLog: (msg) => safeSend(win, 'launch:log', String(msg)),
+      });
+      if (!loaderType) mclcVersion = { number: version, custom: version, type: config.versionType || 'release' };
+      safeSend(win, 'launch:log', `[下载源] ${source.label}`);
+    } catch (error) {
+      safeSend(win, 'launch:log', `[下载源] 镜像准备失败，回退官方源：${error.message}`);
     }
   }
 
@@ -218,8 +262,20 @@ async function launch(config, win) {
     root,
     version: mclcVersion,
     memory: { max: config.maxMemory || '4G', min: config.minMemory || '2G' },
-    javaPath: config.javaPath || undefined,
+    ...(source.id !== 'mojang'
+      ? {
+          overrides: {
+            url: {
+              meta: source.meta,
+              resource: source.asset,
+              mavenForge: `${source.maven}/`,
+              defaultRepoForge: `${source.maven}/`,
+            },
+          },
+        }
+      : {}),
     ...(forgeInstaller ? { forge: forgeInstaller } : {}),
+    javaPath: javaPath || undefined,
   };
 
   // MCLC 下载资源时并发句柄过多会抛 EMFILE（Retrying... false 就放弃该文件）。

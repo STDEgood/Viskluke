@@ -161,6 +161,8 @@ async function main() {
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE; // 否则 electron 会以纯 Node 运行，不建窗口
   env.VISKLUKE_DISABLE_GPU = env.VISKLUKE_DISABLE_GPU || '1';
+  // 开发时直接加载项目里的 renderer，避免 userData/ui 的旧副本挡住 UI 改动
+  env.VISKLUKE_UI_DIR = env.VISKLUKE_UI_DIR || path.join(ROOT, 'renderer');
 
   console.log(`[screenshots] 启动应用（调试端口 ${port}）…`);
   const child = spawn(electronBinary(), [ROOT, '--no-sandbox', `--remote-debugging-port=${port}`], {
@@ -251,6 +253,16 @@ async function main() {
       console.log('[screenshots] 跳过域名管理面板（没有展开）');
     }
     await evaluate(`(() => { const b = document.getElementById('btn-toggle-domains'); if (b) b.click(); return true; })()`);
+
+    // 5c) 设置页（下载源 / Java / 界面 / 正版登录）
+    await evaluate(`document.querySelector('.menu-item[data-page="settings"]').click()`);
+    await sleep(1200);
+    await shot('settings.png');
+
+    // 5d) 内置浏览器（标签页 + 地址栏）
+    await evaluate(`document.querySelector('.menu-item[data-page="browser"]').click()`);
+    await sleep(3000);
+    await shot('browser.png');
 
     // 6) 登录弹窗
     await evaluate(`document.getElementById('account-card').click()`);

@@ -86,9 +86,30 @@ contextBridge.exposeInMainWorld('viskluke', {
   cfRemoveManualZone: (suffix) => ipcRenderer.invoke('cf:remove-manual-zone', { suffix }),
   cfOpenTokenPage: () => ipcRenderer.invoke('cf:open-token-page'),
 
+  // ---------------- 设置 / 下载源 / Java / 自定义界面 ----------------
+  settingsGet: () => ipcRenderer.invoke('settings:get'),
+  settingsSet: (payload) => ipcRenderer.invoke('settings:set', payload),
+  mirrorTest: () => ipcRenderer.invoke('mirror:test'),
+  javaStatus: () => ipcRenderer.invoke('java:status'),
+  javaDetect: () => ipcRenderer.invoke('java:detect'),
+  javaInstall: (payload) => ipcRenderer.invoke('java:install', payload),
+  authClientId: () => ipcRenderer.invoke('auth:client-id'),
+  uiDir: () => ipcRenderer.invoke('ui:dir'),
+  uiOpen: () => ipcRenderer.invoke('ui:open'),
+  uiReset: () => ipcRenderer.invoke('ui:reset'),
+
+  // ---------------- 内置浏览器 ----------------
+  browserOpenDownloads: () => ipcRenderer.invoke('browser:open-downloads'),
+  browserOpenExternal: (url) => ipcRenderer.invoke('browser:open-external', url),
+  importDownloaded: (payload) => ipcRenderer.invoke('mods:import', payload),
+
   // ---------------- 事件订阅 ----------------
   onDeviceCode: (cb) => subscribe('auth:device-code', cb),
   onLog: (cb) => subscribe('launch:log', cb),
+  onJavaLog: (cb) => subscribe('java:log', cb),
+  onJavaProgress: (cb) => subscribe('java:progress', cb),
+  onBrowserDownload: (cb) => subscribe('browser:download', cb),
+  onBrowserOpenTab: (cb) => subscribe('browser:open-tab', cb),
   onServerLog: (cb) => subscribe('server:log', cb),
   onServerStatus: (cb) => subscribe('server:status', cb),
   onServerProgress: (cb) => subscribe('server:progress', cb),

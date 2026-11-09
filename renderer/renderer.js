@@ -189,6 +189,8 @@
     instances: ['游戏', '选择一个实例开始游戏'],
     downloads: ['下载', '游戏版本、Mod、资源包、光影、整合包'],
     servers: ['服务器', '一键开服 + Viskluke Address 自定义域名'],
+    browser: ['浏览器', '在启动器里找模组、下整合包，下完直接导入'],
+    settings: ['设置', '下载源 · Java · 界面自定义 · 正版登录'],
   };
 
   function showPage(page, options = {}) {
@@ -220,6 +222,8 @@
       fillWhitelistFromAccount();
     }
     if (page === 'instances') renderInstance();
+    if (page === 'browser') ensureBrowserPage();
+    if (page === 'settings') loadSettingsPanel();
   }
 
   document.querySelectorAll('.menu-item').forEach((btn) => {
@@ -282,6 +286,16 @@
     });
     $('auth-offline').classList.toggle('hidden', tab !== 'offline');
     $('auth-microsoft').classList.toggle('hidden', tab !== 'microsoft');
+    if (tab === 'microsoft') {
+      api.authClientId().then((info) => {
+        if (!info || !info.configured) {
+          $('auth-status').textContent =
+            '还没有配置 Client ID：到「设置 → 正版登录」填一个 Azure 应用的 client_id 就能用。';
+        } else if ($('auth-status').textContent.includes('还没有配置')) {
+          $('auth-status').textContent = '点击下方按钮，浏览器会打开微软授权页。';
+        }
+      }).catch(() => {});
+    }
   }
 
   $('account-card').addEventListener('click', () => openAuth('offline'));
@@ -340,7 +354,13 @@
         closeAuth();
         toast(`已登录：${result.minecraft.name}`, 'success');
       } else {
-        $('auth-status').textContent = `登录失败：${(result && result.error) || '未知错误'}`;
+        const message = (result && result.error) || '未知错误';
+        $('auth-status').textContent = `登录失败：${message}`;
+        if (result && result.code === 'msa_client_id_missing') {
+          toast('正版登录需要先填 Azure Client ID，已跳到设置', 'warn', 8000);
+          closeAuth();
+          showPage('settings');
+        }
       }
     } catch (error) {
       $('auth-status').textContent = `登录失败：${error.message || error}`;
@@ -992,14 +1012,19 @@
 
   async function loadVersions() {
     const list = $('dl-list');
-    list.innerHTML = '<div class="rows-empty">读取 Mojang 版本清单…</div>';
+    list.innerHTML = '<div class="rows-empty">读取版本清单…</div>';
     try {
       const result = await api.storeVersions({
         type: $('dl-kind').value || 'release',
         query: $('dl-search').value.trim(),
         limit: 60,
+        force: Boolean(state.forceVersions),
       });
+      state.forceVersions = false;
       const rows = (result && result.versions) || [];
+      if (result && result.source) {
+        $('dl-tip').textContent = `下载源：${result.source.label}${result.source.source !== 'mojang' ? '（镜像）' : ''}`;
+      }
       list.innerHTML = '';
       if (!rows.length) {
         list.innerHTML = '<div class="rows-empty">没有匹配的版本</div>';
@@ -1316,7 +1341,11 @@
   document.querySelectorAll('.tab[data-tab]').forEach((btn) => {
     btn.addEventListener('click', () => setDownloadTab(btn.dataset.tab));
   });
-  $('dl-refresh').addEventListener('click', () => loadDownloads());
+  $('dl-refresh').addEventListener('click', () => {
+    // 走 force：绕过主进程的 10 分钟清单缓存，新版本立刻可见
+    state.forceVersions = true;
+    loadDownloads();
+  });
   $('dl-search').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') loadDownloads();
   });
@@ -2454,6 +2483,411 @@
   });
 
   // =========================================================================
+  // 设置页：下载源 / Java / 界面自定义 / 正版登录
+  // =========================================================================
+
+  function requiredJavaFor(version) {
+    const match = String(version || '').match(/^(\d+)\.(\d+)(?:\.(\d+))?/);
+    if (!match) return 17;
+    const major = Number(match[1]);
+    const minor = Number(match[2]);
+    const patch = Number(match[3] || 0);
+    if (major >= 26) return 25;
+    if (major === 1) {
+      if (minor >= 21) return 21;
+      if (minor === 20 && patch >= 5) return 21;
+      if (minor >= 17) return 17;
+      return 8;
+    }
+    return 17;
+  }
+
+  function javaSummary(list) {
+    if (!list || !list.length) return '没有检测到 Java（启动时会自动下载）';
+    return list
+      .slice(0, 3)
+      .map((item) => `Java ${item.major} · ${item.path}`)
+      .join('\n');
+  }
+
+  async function refreshJavaPanel() {
+    try {
+      const info = await api.javaStatus();
+      $('set-java-state').textContent = javaSummary(info.detected);
+    } catch (error) {
+      $('set-java-state').textContent = `检测失败：${error.message || error}`;
+    }
+  }
+
+  async function loadSettingsPanel() {
+    try {
+      const info = await api.settingsGet();
+      state.settings = info.settings;
+      $('set-download-source').value = info.settings.downloadSource || 'mojang';
+      $('set-custom-mirror').value = info.settings.customMirror || '';
+      $('set-custom-wrap').classList.toggle('hidden', $('set-download-source').value !== 'custom');
+      $('set-ui-dir').textContent = info.uiDir || (await api.uiDir()).dir || '';
+      $('set-msa-client').value = info.settings.msaClientId || '';
+      $('set-msa-state').textContent = info.msaConfigured ? '已配置，可以直接正版登录' : '未配置';
+      $('set-mirror-state').textContent = `当前：${info.mirror.label}`;
+      await refreshJavaPanel();
+    } catch (error) {
+      toast(`读取设置失败：${error.message || error}`, 'error');
+    }
+  }
+
+  $('set-download-source').addEventListener('change', () => {
+    $('set-custom-wrap').classList.toggle('hidden', $('set-download-source').value !== 'custom');
+  });
+
+  $('set-save-mirror').addEventListener('click', async () => {
+    const downloadSource = $('set-download-source').value;
+    const customMirror = $('set-custom-mirror').value.trim();
+    if (downloadSource === 'custom' && !customMirror) return toast('先填镜像根地址', 'warn');
+    try {
+      const saved = await api.settingsSet({ downloadSource, customMirror });
+      state.settings = saved.settings;
+      $('set-mirror-state').textContent = `已切换为 ${saved.mirror.label}，正在测速…`;
+      const test = await api.mirrorTest();
+      $('set-mirror-state').textContent = `✓ ${test.source}｜${test.ms}ms｜最新 ${test.latest}（${test.count} 个版本）`;
+      toast('下载源已切换', 'success');
+      if (state.page === 'downloads') loadDownloads();
+    } catch (error) {
+      $('set-mirror-state').textContent = `✗ ${error.message || error}`;
+      toast(`镜像测试失败：${error.message || error}`, 'error', 8000);
+    }
+  });
+
+  $('set-java-detect').addEventListener('click', async () => {
+    $('set-java-state').textContent = '检测中…';
+    try {
+      const list = await api.javaDetect();
+      $('set-java-state').textContent = javaSummary(list);
+    } catch (error) {
+      $('set-java-state').textContent = `检测失败：${error.message || error}`;
+    }
+  });
+
+  $('set-java-auto').addEventListener('click', async () => {
+    const version = ((state.instances || []).find((item) => item.version) || {}).version || '1.20.4';
+    const major = requiredJavaFor(version);
+    $('set-java-log').textContent = '';
+    $('set-java-state').textContent = `正在准备 Java ${major}…`;
+    try {
+      await api.javaInstall({ major });
+      toast(`Java ${major} 已就绪`, 'success');
+      await refreshJavaPanel();
+    } catch (error) {
+      toast(`安装失败：${error.message || error}`, 'error', 9000);
+      $('set-java-state').textContent = `安装失败：${error.message || error}`;
+    }
+  });
+
+  $('set-java-open').addEventListener('click', async () => {
+    const info = await api.javaStatus();
+    if (info && info.managedRoot) toast(`Java 目录：${info.managedRoot}`, 'info', 8000);
+  });
+
+  $('set-ui-open').addEventListener('click', async () => {
+    const result = await api.uiOpen();
+    if (result && result.ok) {
+      toast(`界面目录：${result.dir}`, 'info', 6000);
+    } else {
+      const dir = (result && result.dir) || '';
+      toast(`打不开资源管理器。界面目录：${dir}`, 'error', 10000);
+      if (dir) {
+        try {
+          await navigator.clipboard.writeText(dir);
+          toast('路径已复制到剪贴板，粘贴到资源管理器地址栏即可', 'info', 6000);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  });
+
+  $('set-ui-reset').addEventListener('click', async () => {
+    try {
+      const result = await api.uiReset();
+      toast('已恢复默认界面，重启后生效', 'success', 6000);
+      $('set-ui-dir').textContent = (result && result.dir) || '';
+    } catch (error) {
+      toast(`恢复失败：${error.message || error}`, 'error');
+    }
+  });
+
+  $('set-msa-save').addEventListener('click', async () => {
+    const msaClientId = $('set-msa-client').value.trim();
+    try {
+      const saved = await api.settingsSet({ msaClientId });
+      state.settings = saved.settings;
+      $('set-msa-state').textContent = msaClientId ? '已保存，可以正版登录' : '未配置';
+      toast(msaClientId ? 'Client ID 已保存' : '已清空 Client ID', 'success');
+    } catch (error) {
+      toast(`保存失败：${error.message || error}`, 'error');
+    }
+  });
+
+  api.onJavaLog((line) => {
+    const log = $('set-java-log');
+    if (!log) return;
+    log.textContent += `${line}\n`;
+    log.scrollTop = log.scrollHeight;
+  });
+
+  api.onJavaProgress((progress) => {
+    if (!progress) return;
+    const percent = progress.percent == null ? '' : `${progress.percent}%`;
+    $('set-java-state').textContent = `正在下载 Java ${percent}（${(progress.received / 1048576).toFixed(1)} MB）`;
+  });
+
+  // =========================================================================
+  // 内置浏览器（标签页 + 地址栏 + 下载导入）
+  // =========================================================================
+
+  const browser = { tabs: [], activeId: null, seq: 0 };
+
+  function browserHome() {
+    return (state.settings && state.settings.browserHome) || 'https://www.bing.com';
+  }
+
+  function normalizeAddress(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return browserHome();
+    if (/^https?:\/\//i.test(value)) return value;
+    if (/^[\w.-]+\.[a-z]{2,}([/:?#].*)?$/i.test(value)) return `https://${value}`;
+    return `https://www.bing.com/search?q=${encodeURIComponent(value)}`;
+  }
+
+  function activeBrowserTab() {
+    return browser.tabs.find((tab) => tab.id === browser.activeId) || null;
+  }
+
+  function setBrowserEmptyVisible() {
+    const empty = $('browser-empty');
+    if (empty) empty.classList.toggle('hidden', browser.tabs.length > 0);
+  }
+
+  function activateBrowserTab(id) {
+    browser.activeId = id;
+    for (const tab of browser.tabs) {
+      const active = tab.id === id;
+      tab.button.classList.toggle('active', active);
+      tab.view.classList.toggle('hidden', !active);
+    }
+    const tab = activeBrowserTab();
+    if (tab) {
+      try {
+        $('browser-url').value = tab.view.getURL() || tab.url || '';
+      } catch {
+        $('browser-url').value = tab.url || '';
+      }
+    }
+    setBrowserEmptyVisible();
+  }
+
+  function updateBrowserTitle(tab, title) {
+    tab.title = title || '新标签页';
+    const span = tab.button.querySelector('.tab-title');
+    if (span) span.textContent = tab.title;
+  }
+
+  function closeBrowserTab(id) {
+    const index = browser.tabs.findIndex((tab) => tab.id === id);
+    if (index < 0) return;
+    const [tab] = browser.tabs.splice(index, 1);
+    try {
+      tab.view.remove();
+    } catch {
+      /* ignore */
+    }
+    tab.button.remove();
+    if (browser.activeId === id) {
+      const next = browser.tabs[index] || browser.tabs[index - 1] || null;
+      browser.activeId = null;
+      if (next) activateBrowserTab(next.id);
+      else $('browser-url').value = '';
+    }
+    if (!browser.tabs.length) ensureBrowserTab(browserHome());
+    setBrowserEmptyVisible();
+  }
+
+  function ensureBrowserTab(rawUrl) {
+    const target = normalizeAddress(rawUrl);
+    const id = `b${(browser.seq += 1)}`;
+    const view = document.createElement('webview');
+    view.setAttribute('partition', 'persist:viskluke-browser');
+    // 允许页面用 window.open / target=_blank：真正的弹出会被主进程的
+    // setWindowOpenHandler 拒掉，改成在启动器里新开一个标签页。
+    // 不加这个属性的话，Bing 结果这类 target=_blank 链接点了会毫无反应。
+    view.setAttribute('allowpopups', '');
+    view.setAttribute('src', target);
+    view.classList.add('hidden');
+    $('browser-views').appendChild(view);
+
+    const button = document.createElement('button');
+    button.className = 'browser-tab';
+    button.dataset.tab = id;
+    button.innerHTML = '<span class="tab-title">加载中…</span><span class="tab-close" title="关闭">×</span>';
+    $('browser-tabs').insertBefore(button, $('browser-newtab'));
+
+    const tab = { id, view, button, url: target, title: '新标签页' };
+    browser.tabs.push(tab);
+
+    button.addEventListener('click', (event) => {
+      if (event.target.classList.contains('tab-close')) {
+        event.stopPropagation();
+        closeBrowserTab(id);
+        return;
+      }
+      activateBrowserTab(id);
+    });
+
+    const syncUrl = () => {
+      if (browser.activeId !== id) return;
+      try {
+        $('browser-url').value = view.getURL() || target;
+      } catch {
+        /* ignore */
+      }
+    };
+    view.addEventListener('did-navigate', syncUrl);
+    view.addEventListener('did-navigate-in-page', syncUrl);
+    view.addEventListener('page-title-updated', (event) => updateBrowserTitle(tab, event.title));
+    view.addEventListener('did-fail-load', (event) => {
+      if (event.errorCode !== -3) updateBrowserTitle(tab, '加载失败');
+    });
+
+    activateBrowserTab(id);
+    return tab;
+  }
+
+  function ensureBrowserPage() {
+    if (!browser.tabs.length) ensureBrowserTab(browserHome());
+    else setBrowserEmptyVisible();
+  }
+
+  $('browser-newtab').addEventListener('click', () => ensureBrowserTab(browserHome()));
+  $('browser-go').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (!tab) return ensureBrowserTab($('browser-url').value);
+    tab.view.loadURL(normalizeAddress($('browser-url').value));
+  });
+  $('browser-url').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') $('browser-go').click();
+  });
+  $('browser-back').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (tab) tab.view.canGoBack() && tab.view.goBack();
+  });
+  $('browser-forward').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (tab) tab.view.canGoForward() && tab.view.goForward();
+  });
+  $('browser-reload').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (tab) tab.view.reload();
+  });
+  $('browser-home').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (tab) tab.view.loadURL(browserHome());
+    else ensureBrowserTab(browserHome());
+  });
+  $('browser-external').addEventListener('click', () => {
+    const tab = activeBrowserTab();
+    if (!tab) return;
+    try {
+      api.browserOpenExternal(tab.view.getURL());
+    } catch {
+      /* ignore */
+    }
+  });
+  document.querySelectorAll('.chip[data-url]').forEach((chip) => {
+    chip.addEventListener('click', () => ensureBrowserTab(chip.dataset.url));
+  });
+  $('browser-open-downloads').addEventListener('click', () => api.browserOpenDownloads());
+
+  api.onBrowserOpenTab((payload) => {
+    if (payload && payload.url) ensureBrowserTab(payload.url);
+  });
+
+  // ---------------- 下载完成 → 一键导入实例 ----------------
+  let lastDownload = null;
+
+  function guessImportKind(filename) {
+    const lower = String(filename || '').toLowerCase();
+    if (lower.endsWith('.jar')) return 'mod';
+    if (lower.endsWith('.mrpack')) return 'modpack';
+    return 'resourcepack';
+  }
+
+  function openImportDialog(download) {
+    lastDownload = download;
+    $('import-file').textContent = `${download.name}\n${download.path}`;
+    const select = $('import-instance');
+    select.innerHTML = '';
+    if (state.instances.length) {
+      for (const instance of state.instances) {
+        const option = document.createElement('option');
+        option.value = instance.id;
+        option.textContent = `${instance.name}（${instance.version || '?'}）`;
+        select.appendChild(option);
+      }
+    } else {
+      const option = document.createElement('option');
+      option.value = '';
+      option.textContent = '还没有实例，先去「下载 → 游戏版本」建一个';
+      select.appendChild(option);
+    }
+    $('import-kind').value = guessImportKind(download.name);
+    $('import-result').textContent = '';
+    $('import-modal').classList.remove('hidden');
+  }
+
+  $('import-cancel').addEventListener('click', () => $('import-modal').classList.add('hidden'));
+  $('import-confirm').addEventListener('click', async () => {
+    if (!lastDownload) return;
+    const instanceId = $('import-instance').value;
+    if (!instanceId) {
+      $('import-result').textContent = '还没有实例：先去「下载 → 游戏版本」创建。';
+      return;
+    }
+    $('import-result').textContent = '导入中…';
+    try {
+      const result = await api.importDownloaded({
+        filePath: lastDownload.path,
+        instanceId,
+        kind: $('import-kind').value,
+      });
+      if (result && result.ok) {
+        $('import-result').textContent = `已导入：${result.path}${result.note ? `\n${result.note}` : ''}`;
+        toast('已导入到实例', 'success');
+      } else {
+        $('import-result').textContent = `失败：${(result && result.error) || '未知错误'}`;
+      }
+    } catch (error) {
+      $('import-result').textContent = `失败：${error.message || error}`;
+    }
+  });
+
+  api.onBrowserDownload((payload) => {
+    if (!payload) return;
+    const label = payload.state === 'started' ? '开始下载' : payload.state === 'failed' ? '下载失败' : '已下载';
+    if (payload.state === 'progress') {
+      const percent = payload.totalBytes ? Math.round((payload.receivedBytes / payload.totalBytes) * 100) : null;
+      $('browser-downloads').textContent = `下载中：${payload.name}${percent == null ? '' : ` ${percent}%`}`;
+      return;
+    }
+    $('browser-downloads').textContent = `${label}：${payload.name}`;
+    if (payload.state === 'done') {
+      toast(`下载完成：${payload.name}`, 'success', 6000);
+      openImportDialog(payload);
+    } else if (payload.state === 'failed') {
+      toast(`下载失败：${payload.name}`, 'error', 6000);
+    }
+  });
+
+  // =========================================================================
   // 初始化
   // =========================================================================
 
@@ -2487,6 +2921,12 @@
 
   async function bootstrap() {
     renderAccount();
+    try {
+      const info = await api.settingsGet();
+      state.settings = info.settings;
+    } catch {
+      /* 读不到就用默认值 */
+    }
     showPage('instances');
     await Promise.allSettled([refreshInstances(), refreshCf(), refreshServers()]);
     if (state.instances.length && state.instances[0].version) $('dl-version').value = state.instances[0].version;

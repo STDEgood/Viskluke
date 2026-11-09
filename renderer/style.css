@@ -598,3 +598,162 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   .stage { padding: 16px; }
   .form-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ==========================================================================
+   2026-10 更新：动效 / 内置浏览器 / 设置页 / 导入弹窗
+   ========================================================================== */
+
+/* ---------------- 动效（不放任何宣传文案，只做手感） ---------------- */
+
+/* 顶部一层很淡的呼吸光，跟着页面一起淡入 */
+.stage::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 260px;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 120% at 18% 0%, rgba(37, 99, 235, .07), transparent 70%),
+    radial-gradient(50% 110% at 82% 0%, rgba(14, 165, 233, .06), transparent 70%);
+  animation: stage-breathe 14s ease-in-out infinite alternate;
+}
+.stage { position: relative; }
+@keyframes stage-breathe {
+  from { opacity: .55; transform: translateY(-4px) scale(1); }
+  to   { opacity: 1;   transform: translateY(0)   scale(1.03); }
+}
+
+/* 页面切换更顺滑 */
+.page { animation: page-in .22s cubic-bezier(.22, .8, .3, 1); }
+
+/* 侧栏菜单：hover 轻微右移，选中项有一条会生长的指示条 */
+.menu-item { position: relative; transition: transform .16s ease, background .16s ease, color .16s ease; }
+.menu-item:hover { transform: translateX(2px); }
+.menu-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 50%;
+  width: 3px; height: 0;
+  border-radius: 3px;
+  background: var(--primary);
+  transform: translateY(-50%);
+  animation: rail-indicator .22s ease forwards;
+}
+@keyframes rail-indicator { to { height: 16px; } }
+
+/* 按钮/卡片：按下有反馈，悬停有抬升 */
+.btn, .row, .settings-card, .browser-tab {
+  transition: transform .14s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
+}
+.btn:active { transform: translateY(1px) scale(.99); }
+.row:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, .06);
+}
+.settings-card:hover { border-color: var(--line-strong); }
+
+/* 空状态：图标/文字依次浮入，不再是一片死白 */
+.empty > * { animation: rise-in .32s ease both; }
+.empty > *:nth-child(2) { animation-delay: .06s; }
+.empty > *:nth-child(3) { animation-delay: .12s; }
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* 尊重系统“减少动态效果” */
+@media (prefers-reduced-motion: reduce) {
+  .stage::before,
+  .menu-item.active::before,
+  .page,
+  .empty > * { animation: none !important; }
+  .menu-item:hover, .row:hover { transform: none; }
+}
+
+/* ---------------- 内置浏览器 ---------------- */
+#page-browser { display: flex; flex-direction: column; height: 100%; }
+.browser-shell {
+  display: flex; flex-direction: column; gap: 8px;
+  min-height: 0; flex: 1;
+}
+.browser-tabs {
+  display: flex; align-items: center; gap: 4px;
+  overflow-x: auto; padding-bottom: 2px;
+}
+.browser-tab {
+  display: inline-flex; align-items: center; gap: 6px;
+  max-width: 200px; padding: 5px 8px 5px 10px;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: #fff; color: var(--muted); cursor: pointer;
+  font-size: 12px; white-space: nowrap;
+}
+.browser-tab.active {
+  color: var(--text); border-color: var(--line-strong); background: var(--hover);
+}
+.browser-tab .tab-title { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+.browser-tab .tab-close {
+  border: 0; background: transparent; cursor: pointer; color: var(--faint);
+  font-size: 13px; line-height: 1; padding: 0 2px;
+}
+.browser-tab .tab-close:hover { color: var(--err); }
+.browser-newtab, .icon-btn {
+  border: 1px solid var(--line); background: #fff; border-radius: 8px;
+  width: 28px; height: 28px; cursor: pointer; color: var(--muted);
+  display: inline-grid; place-items: center; font-size: 14px;
+}
+.browser-newtab:hover, .icon-btn:hover { background: var(--hover); color: var(--text); }
+.browser-bar { display: flex; align-items: center; gap: 6px; }
+.browser-url {
+  flex: 1; min-width: 0; height: 30px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 8px;
+  background: var(--hover); font-size: 12px; font-family: var(--mono);
+}
+.browser-url:focus { background: #fff; outline: none; border-color: #a5b4fc; }
+.browser-views { position: relative; flex: 1; min-height: 220px; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: #fff; }
+.browser-views webview { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.browser-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 8px;
+  color: var(--muted); text-align: center; padding: 24px;
+  pointer-events: none;
+}
+.browser-empty > * { pointer-events: auto; }
+.browser-empty-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.browser-status { display: flex; align-items: center; gap: 8px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.chip {
+  border: 1px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--muted);
+}
+.chip:hover { color: var(--text); border-color: var(--line-strong); background: var(--hover); }
+
+/* ---------------- 设置页 ---------------- */
+.settings-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 12px; align-content: start;
+}
+.settings-card {
+  border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; background: #fff;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.settings-card h3 { font-size: 13px; letter-spacing: -.01em; }
+.settings-card .hint-text { margin: 0; }
+.field { display: flex; flex-direction: column; gap: 5px; font-size: 12px; color: var(--muted); }
+.field select, .field input {
+  height: 30px; border: 1px solid var(--line-strong); border-radius: 8px;
+  padding: 0 8px; font-size: 12px; color: var(--text); background: #fff;
+}
+.mini-log {
+  max-height: 110px; overflow: auto; margin: 0; padding: 8px;
+  border-radius: 8px; background: #0f0f11; color: #d4d4d8;
+  font-family: var(--mono); font-size: 11px; white-space: pre-wrap;
+}
+.mini-log:empty { display: none; }
+
+/* ---------------- 小屏适配（窗口调小后） ---------------- */
+@media (max-width: 1020px) {
+  .rail { width: 208px; flex: 0 0 208px; }
+}
+.browser-shell { position: relative; }
+.browser-empty { background: #fff; z-index: 2; }
