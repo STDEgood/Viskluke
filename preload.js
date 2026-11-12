@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('viskluke', {
   uiDir: () => ipcRenderer.invoke('ui:dir'),
   uiOpen: () => ipcRenderer.invoke('ui:open'),
   uiReset: () => ipcRenderer.invoke('ui:reset'),
+  uiImport: (mode) => ipcRenderer.invoke('ui:import', { mode }),
+  uiExport: () => ipcRenderer.invoke('ui:export'),
+  uiReload: () => ipcRenderer.invoke('ui:reload'),
 
   // ---------------- 内置浏览器 ----------------
   browserOpenDownloads: () => ipcRenderer.invoke('browser:open-downloads'),

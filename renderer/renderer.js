@@ -202,6 +202,10 @@
     $('page-title').textContent = title;
     $('page-sub').textContent = sub;
 
+    // 首页不要大标题（用户反馈像广告）：只留实例面板和「启动游戏」
+    const stageHead = document.querySelector('.stage-head');
+    if (stageHead) stageHead.classList.toggle('hidden', page === 'instances');
+
     document.querySelectorAll('.menu-item').forEach((btn) => {
       btn.classList.toggle('active', btn.dataset.page === page);
     });
@@ -1994,6 +1998,27 @@
     relayUrlTouched = true;
   });
 
+  // ---- 联机方式：内置 Cloudflare / 自建中继 ----
+  function applyRelaySource() {
+    const source = $('relay-source').value;
+    const input = $('relay-url');
+    const hint = $('relay-source-hint');
+    if (source === 'custom') {
+      hint.textContent =
+        '在自己的公网机器上运行 npm run relay:serve，把 ws:// 或 wss:// 地址填到下面；不消耗 Cloudflare 额度。';
+      input.placeholder = 'wss://你的中继地址（例如 wss://relay.example.com）';
+    } else {
+      hint.textContent =
+        '走内置 relay.stde.eu.cc，会消耗 Cloudflare 免费额度；额度不足就切「自建中继」，或改用局域网 / IPv6 / UPnP。';
+      input.placeholder = '中继地址（留空 = 内置 wss://relay.stde.eu.cc）';
+    }
+  }
+  $('relay-source').addEventListener('change', applyRelaySource);
+  $('btn-relay-selfhost').addEventListener('click', () => {
+    api.openExternal('https://github.com/STDEgood/Viskluke/blob/main/docs/RELAY-SELFHOST.md');
+  });
+  applyRelaySource();
+
   function renderRelay(status) {
     const tag = $('relay-state');
     const parts = [];
@@ -2527,6 +2552,7 @@
       $('set-custom-mirror').value = info.settings.customMirror || '';
       $('set-custom-wrap').classList.toggle('hidden', $('set-download-source').value !== 'custom');
       $('set-ui-dir').textContent = info.uiDir || (await api.uiDir()).dir || '';
+      $('set-language').value = info.settings.language === 'en-US' ? 'en-US' : 'zh-CN';
       $('set-msa-client').value = info.settings.msaClientId || '';
       $('set-msa-state').textContent = info.msaConfigured ? '已配置，可以直接正版登录' : '未配置';
       $('set-mirror-state').textContent = `当前：${info.mirror.label}`;
@@ -2609,10 +2635,52 @@
   $('set-ui-reset').addEventListener('click', async () => {
     try {
       const result = await api.uiReset();
-      toast('已恢复默认界面，重启后生效', 'success', 6000);
+      toast('已恢复默认界面，正在重新加载…', 'success', 6000);
       $('set-ui-dir').textContent = (result && result.dir) || '';
     } catch (error) {
       toast(`恢复失败：${error.message || error}`, 'error');
+    }
+  });
+
+  // ---- 导入 / 导出主题 ----
+  async function importTheme(mode) {
+    try {
+      const result = await api.uiImport(mode);
+      if (!result || result.canceled) return;
+      if (result.ok) toast(`已导入主题（${result.copied} 个文件），界面已重新加载`, 'success', 6000);
+      else toast(`导入失败：${result.error || ''}`, 'error', 6000);
+    } catch (error) {
+      toast(`导入失败：${error.message || error}`, 'error', 8000);
+    }
+  }
+  $('set-ui-import').addEventListener('click', () => importTheme('zip'));
+  $('set-ui-import-folder').addEventListener('click', () => importTheme('folder'));
+
+  $('set-ui-export').addEventListener('click', async () => {
+    try {
+      const result = await api.uiExport();
+      if (!result || result.canceled) return;
+      if (result.ok) toast(`已导出：${result.file}`, 'success', 8000);
+      else toast(`导出失败：${result.error || ''}`, 'error', 6000);
+    } catch (error) {
+      toast(`导出失败：${error.message || error}`, 'error', 8000);
+    }
+  });
+
+  $('set-ui-reload').addEventListener('click', () => api.uiReload());
+
+  $('set-language').addEventListener('change', async () => {
+    const language = $('set-language').value === 'en-US' ? 'en-US' : 'zh-CN';
+    try {
+      await api.settingsSet({ language });
+      try {
+        localStorage.setItem('viskluke.lang', language);
+      } catch {
+        /* ignore */
+      }
+      location.reload();
+    } catch (error) {
+      toast(`语言切换失败：${error.message || error}`, 'error');
     }
   });
 
@@ -2924,6 +2992,22 @@
     try {
       const info = await api.settingsGet();
       state.settings = info.settings;
+      const want = info.settings.language === 'en-US' ? 'en-US' : 'zh-CN';
+      let have = 'zh-CN';
+      try {
+        have = localStorage.getItem('viskluke.lang') || 'zh-CN';
+      } catch {
+        /* ignore */
+      }
+      if (have !== want) {
+        try {
+          localStorage.setItem('viskluke.lang', want);
+        } catch {
+          /* ignore */
+        }
+        location.reload();
+        return;
+      }
     } catch {
       /* 读不到就用默认值 */
     }

@@ -2,7 +2,7 @@
 
 Minecraft 启动器 —— 离线/正版登录、Mod 与整合包一键安装、一键开服 + 自定义域名（Viskluke Address）。
 
-当前版本 **1.1.2** · Electron 33 · Windows 10 / 11
+当前版本 **1.1.3** · Electron 33 · Windows 10 / 11
 
 > **下载安装包 / 免安装包**：<https://github.com/STDEgood/Viskluke/releases/latest>
 > 源码以 MIT 协议开源，见 [LICENSE](LICENSE)。
@@ -94,8 +94,10 @@ npm run package:dir    :: 只出免安装目录 → dist\win-unpacked\Viskluke.e
 | **下载源** | 设置 → 下载源 | 默认 Mojang；可切 BMCLAPI 镜像或填自己的反代。改完立刻生效，游戏文件走镜像；下载页「刷新」会绕过 10 分钟缓存 |
 | **Java 自动检测/下载** | 设置 → Java 环境 | 依次找：实例路径 → 设置路径 → 启动器下载过的 JRE → `JAVA_HOME` → `PATH` → 常见目录；仍然没有就按版本自动下载 Adoptium Temurin JRE（8 / 17 / 21 / 25） |
 | **内置浏览器** | 侧栏「浏览器」 | 标签页 + 地址栏，默认首页/搜索都是 **Bing**；下载 `.jar` / `.zip` / `.mrpack` 后弹窗「导入到哪个实例」 |
-| **可改界面** | 设置 → 界面自定义 | 界面文件复制到 `<userData>\ui`，打包后也能改 `index.html` / `style.css`；改坏了点「恢复默认界面」（重启生效） |
+| **可改界面** | 设置 → 界面自定义 | 界面文件复制到 `<userData>\ui`，打包后也能改；支持**导入主题包**（zip 或文件夹，含 `index.html` / `style.css` 即可）、导出当前主题、重新加载界面；导入前自动备份 |
 | **正版登录** | 登录 → 微软正版 | 设备码登录，需要你自己的 Azure 应用 `client_id`，在 设置 → 正版登录 里填（见下） |
+| **联机方式** | 服务器 → 联机方式 | Cloudflare 中继（消耗额度）/ **自建中继（免费）**；自建只需一台公网机器，`npm run relay:serve`，详见 [docs/RELAY-SELFHOST.md](docs/RELAY-SELFHOST.md)。没公网时用局域网 / IPv6 / UPnP，都不花钱 |
+| **多语言** | 设置 → 界面语言 | 简体中文 / English；菜单栏同步切换。带变量的少数提示（如「已导入：xxx」）会回退中文 |
 
 **正版登录的 3 分钟准备**（微软要求每个启动器用自己的应用注册，不能共用别人的）：
 

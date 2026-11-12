@@ -18,6 +18,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
+const AdmZip = require('adm-zip');
 
 const APP_DIR_NAME = 'viskluke-launcher'; // 与 package.json 的 name 一致（userData 目录名）
 const LOG_NAME = 'viskluke_error.log';
@@ -319,22 +320,32 @@ function readUiManifest(file) {
   }
 }
 
-function writeUiManifest(source, target, version) {
+function hashTree(dir) {
   const files = {};
-  for (const rel of listFilesRecursive(source)) files[rel] = sha256File(path.join(source, rel));
-  fs.writeFileSync(path.join(target, UI_MANIFEST), `${JSON.stringify({ version, files }, null, 2)}\n`, 'utf8');
+  for (const rel of listFilesRecursive(dir)) files[rel] = sha256File(path.join(dir, rel));
+  return files;
+}
+
+function writeUiManifest(target, version, custom) {
+  const manifest = { version, custom: Boolean(custom), files: hashTree(target) };
+  fs.writeFileSync(path.join(target, UI_MANIFEST), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }
 
 /**
- * 升级时刷新内置界面：只覆盖「用户没改过」的文件（哈希和旧清单一致才覆盖），
- * 这样既能让用户拿到新功能，又不会把他自定义的主题冲掉。
+ * 版本变化时刷新内置文件：
+ *  · 普通 UI：只覆盖「用户没改过」的文件（哈希和旧清单一致才覆盖）；
+ *  · 自定义主题（custom=true）：只补缺失文件，绝不覆盖用户内容。
  */
 function syncUiDir(source, target, oldManifest) {
+  const custom = Boolean(oldManifest && oldManifest.custom);
   for (const rel of listFilesRecursive(source)) {
     const src = path.join(source, rel);
     const dst = path.join(target, rel);
-    const known = oldManifest && oldManifest.files ? oldManifest.files[rel] : null;
-    if (fs.existsSync(dst) && known && sha256File(dst) !== known) continue; // 用户改过，保留
+    if (fs.existsSync(dst)) {
+      if (custom) continue;
+      const known = oldManifest && oldManifest.files ? oldManifest.files[rel] : null;
+      if (known && sha256File(dst) !== known) continue; // 用户改过，保留
+    }
     fs.mkdirSync(path.dirname(dst), { recursive: true });
     fs.writeFileSync(dst, fs.readFileSync(src));
   }
@@ -379,13 +390,14 @@ function ensureUiDir() {
       const manifest = readUiManifest(path.join(target, UI_MANIFEST));
       if (!fs.existsSync(index)) {
         copyDirSync(source, target);
+        writeUiManifest(target, version, false);
         log('UI', `首次复制界面到：${target}`);
       } else if (!manifest || manifest.version !== version) {
         syncUiDir(source, target, manifest);
+        writeUiManifest(target, version, manifest ? Boolean(manifest.custom) : false);
         log('UI', `界面已随版本刷新（${manifest ? manifest.version : '无标记'} → ${version}）：${target}`);
       }
       if (fs.existsSync(index)) {
-        writeUiManifest(source, target, version);
         UI_DIR = target;
         log('UI', `界面目录：${UI_DIR}`);
         return UI_DIR;
@@ -404,6 +416,288 @@ function ensureUiDir() {
 const INDEX_FILE = () => path.join(ensureUiDir(), 'index.html');
 const PRELOAD_FILE = path.join(__dirname, 'preload.js');
 const BROWSER_PARTITION = 'persist:viskluke-browser';
+
+// ---------------------------------------------------------------------------
+// 主题：导入 / 导出 / 重置（菜单栏和设置页共用）
+// ---------------------------------------------------------------------------
+
+function reloadMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.reload();
+}
+
+async function importUiTheme(mode = 'zip') {
+  const dir = ensureUiDir();
+  const source = path.join(__dirname, 'renderer');
+  if (dir === source) throw new Error('当前是内置只读目录，无法导入主题');
+
+  let picked;
+  if (mode === 'folder') {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择 UI 主题文件夹（里面有 index.html 或 style.css）',
+      properties: ['openDirectory'],
+    });
+    if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
+    picked = result.filePaths[0];
+  } else {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: '选择 UI 主题压缩包（.zip）',
+      properties: ['openFile'],
+      filters: [{ name: 'UI 主题', extensions: ['zip'] }],
+    });
+    if (result.canceled || !result.filePaths[0]) return { ok: false, canceled: true };
+    picked = fs.mkdtempSync(path.join(os.tmpdir(), 'viskluke-theme-'));
+    new AdmZip(result.filePaths[0]).extractAllTo(picked, true);
+  }
+
+  // 主题包常常多套一层目录，往下找一层
+  let root = picked;
+  const hasTheme = (d) => fs.existsSync(path.join(d, 'index.html')) || fs.existsSync(path.join(d, 'style.css'));
+  if (!hasTheme(root)) {
+    for (const entry of fs.readdirSync(picked, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const nested = path.join(picked, entry.name);
+      if (hasTheme(nested)) {
+        root = nested;
+        break;
+      }
+    }
+  }
+  if (!hasTheme(root)) throw new Error('这个包里没有 index.html 或 style.css，不是有效的 UI 主题');
+
+  // 先备份当前界面（最多留 3 份），再把主题覆盖上去
+  const backups = path.join(app.getPath('userData'), 'ui-backups');
+  try {
+    fs.mkdirSync(backups, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    copyDirSync(dir, path.join(backups, stamp));
+    const list = fs.readdirSync(backups).sort();
+    for (const old of list.slice(0, Math.max(0, list.length - 3))) {
+      fs.rmSync(path.join(backups, old), { recursive: true, force: true });
+    }
+  } catch (error) {
+    log('UI', `备份旧界面失败（继续导入）：${error.message}`);
+  }
+
+  let copied = 0;
+  for (const rel of listFilesRecursive(root)) {
+    if (path.basename(rel) === UI_MANIFEST) continue;
+    const dst = path.join(dir, rel);
+    fs.mkdirSync(path.dirname(dst), { recursive: true });
+    fs.writeFileSync(dst, fs.readFileSync(path.join(root, rel)));
+    copied += 1;
+  }
+  writeUiManifest(dir, app.getVersion(), true);
+  log('UI', `已导入主题：${copied} 个文件 → ${dir}`);
+  reloadMainWindow();
+  return { ok: true, copied, dir };
+}
+
+async function exportUiTheme() {
+  const dir = ensureUiDir();
+  const result = await dialog.showSaveDialog(mainWindow, {
+    title: '把当前界面导出为主题包',
+    defaultPath: 'Viskluke-theme.zip',
+    filters: [{ name: 'UI 主题', extensions: ['zip'] }],
+  });
+  if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+  const zip = new AdmZip();
+  for (const rel of listFilesRecursive(dir)) {
+    if (path.basename(rel) === UI_MANIFEST) continue;
+    zip.addFile(rel.split(path.sep).join('/'), fs.readFileSync(path.join(dir, rel)));
+  }
+  zip.writeZip(result.filePath);
+  return { ok: true, file: result.filePath };
+}
+
+function resetUiTheme() {
+  const dir = ensureUiDir();
+  const source = path.join(__dirname, 'renderer');
+  if (dir === source) throw new Error('当前用的是内置目录，无法重置');
+  fs.rmSync(dir, { recursive: true, force: true });
+  copyDirSync(source, dir);
+  writeUiManifest(dir, app.getVersion(), false);
+  log('UI', '已恢复默认主题');
+  reloadMainWindow();
+  return { ok: true, dir };
+}
+
+// ---------------------------------------------------------------------------
+// 应用菜单：文件 / 编辑 / 视图 / 主题 / 帮助
+// ---------------------------------------------------------------------------
+
+const MENU_EN = {
+  文件: 'File',
+  编辑: 'Edit',
+  视图: 'View',
+  主题: 'Theme',
+  帮助: 'Help',
+  打开日志文件: 'Open log file',
+  打开数据目录: 'Open data folder',
+  打开下载目录: 'Open downloads folder',
+  退出: 'Quit',
+  撤销: 'Undo',
+  重做: 'Redo',
+  剪切: 'Cut',
+  复制: 'Copy',
+  粘贴: 'Paste',
+  全选: 'Select all',
+  重新加载界面: 'Reload UI',
+  开发者工具: 'Developer tools',
+  实际大小: 'Actual size',
+  放大: 'Zoom in',
+  缩小: 'Zoom out',
+  全屏: 'Full screen',
+  '导入主题（zip）…': 'Import theme (zip)…',
+  '导入主题（文件夹）…': 'Import theme (folder)…',
+  '导出当前主题…': 'Export current theme…',
+  '恢复默认主题…': 'Reset to default theme…',
+  'GitHub 仓库': 'GitHub repository',
+  自建中继文档: 'Self-hosted relay docs',
+  '关于 Viskluke': 'About Viskluke',
+  主题已导入: 'Theme imported',
+  主题已导入并重新加载: 'Theme imported and reloaded',
+  主题已导出: 'Theme exported',
+  主题包已保存: 'Theme package saved',
+  导入主题失败: 'Failed to import theme',
+  导出主题失败: 'Failed to export theme',
+  恢复默认主题: 'Reset default theme',
+  '确定恢复默认主题吗？': 'Reset to the default theme?',
+  恢复默认: 'Reset',
+  取消: 'Cancel',
+};
+
+/** 主进程文案：英文模式下查表，查不到就回退中文 */
+function L(zh) {
+  if (settings.read().language !== 'en-US') return zh;
+  return MENU_EN[zh] || zh;
+}
+
+function installAppMenu() {
+  const repo = 'https://github.com/STDEgood/Viskluke';
+  const template = [
+    {
+      label: L('文件'),
+      submenu: [
+        { label: L('打开日志文件'), click: () => shell.openPath(ensureLogFile()) },
+        { label: L('打开数据目录'), click: () => shell.openPath(app.getPath('userData')) },
+        {
+          label: L('打开下载目录'),
+          click: () => {
+            const dir = path.join(app.getPath('userData'), 'downloads');
+            fs.mkdirSync(dir, { recursive: true });
+            shell.openPath(dir);
+          },
+        },
+        { type: 'separator' },
+        { role: 'quit', label: L('退出') },
+      ],
+    },
+    {
+      label: L('编辑'),
+      submenu: [
+        { role: 'undo', label: L('撤销') },
+        { role: 'redo', label: L('重做') },
+        { type: 'separator' },
+        { role: 'cut', label: L('剪切') },
+        { role: 'copy', label: L('复制') },
+        { role: 'paste', label: L('粘贴') },
+        { role: 'selectAll', label: L('全选') },
+      ],
+    },
+    {
+      label: L('视图'),
+      submenu: [
+        { label: L('重新加载界面'), accelerator: 'CmdOrCtrl+R', click: () => reloadMainWindow() },
+        { role: 'toggleDevTools', label: L('开发者工具') },
+        { type: 'separator' },
+        { role: 'resetZoom', label: L('实际大小') },
+        { role: 'zoomIn', label: L('放大') },
+        { role: 'zoomOut', label: L('缩小') },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: L('全屏') },
+      ],
+    },
+    {
+      label: L('主题'),
+      submenu: [
+        { label: L('导入主题（zip）…'), click: () => menuImportTheme('zip') },
+        { label: L('导入主题（文件夹）…'), click: () => menuImportTheme('folder') },
+        { label: L('导出当前主题…'), click: () => menuExportTheme() },
+        { type: 'separator' },
+        { label: L('重新加载界面'), click: () => reloadMainWindow() },
+        { label: L('恢复默认主题…'), click: () => menuResetTheme() },
+      ],
+    },
+    {
+      label: L('帮助'),
+      submenu: [
+        { label: L('GitHub 仓库'), click: () => shell.openExternal(repo) },
+        { label: L('自建中继文档'), click: () => shell.openExternal(`${repo}/blob/main/docs/RELAY-SELFHOST.md`) },
+        { type: 'separator' },
+        {
+          label: L('关于 Viskluke'),
+          click: () =>
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: L('关于 Viskluke'),
+              message: `Viskluke Launcher ${app.getVersion()}`,
+              detail: `Electron ${process.versions.electron}\nUI: ${ensureUiDir()}\n\nMIT License · ${repo}`,
+            }),
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  log('MENU', `应用菜单已创建（${settings.read().language || 'zh-CN'}）`);
+}
+
+function menuImportTheme(mode) {
+  importUiTheme(mode)
+    .then((result) => {
+      if (result && result.ok) {
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: L('主题已导入'),
+          message: L('主题已导入并重新加载'),
+          detail: `共复制 ${result.copied} 个文件。\n目录：${result.dir}`,
+        });
+      }
+    })
+    .catch((error) => dialog.showErrorBox(L('导入主题失败'), String((error && error.message) || error)));
+}
+
+function menuExportTheme() {
+  exportUiTheme()
+    .then((result) => {
+      if (result && result.ok) {
+        dialog.showMessageBox(mainWindow, {
+          type: 'info',
+          title: L('主题已导出'),
+          message: L('主题包已保存'),
+          detail: result.file,
+        });
+      }
+    })
+    .catch((error) => dialog.showErrorBox(L('导出主题失败'), String((error && error.message) || error)));
+}
+
+async function menuResetTheme() {
+  const { response } = await dialog.showMessageBox(mainWindow, {
+    type: 'warning',
+    title: L('恢复默认主题'),
+    message: L('确定恢复默认主题吗？'),
+    detail: '当前界面会被内置主题覆盖（导入时曾自动备份到 userData/ui-backups）。',
+    buttons: [L('恢复默认'), L('取消')],
+    defaultId: 1,
+    cancelId: 1,
+  });
+  if (response !== 0) return;
+  try {
+    resetUiTheme();
+  } catch (error) {
+    dialog.showErrorBox('恢复默认主题失败', String((error && error.message) || error));
+  }
+}
 
 function sendToRenderer(channel, payload) {
   if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -495,15 +789,8 @@ function createMainWindow() {
     },
   });
 
-  // 正式版隐藏 Electron 默认菜单栏（File/Edit/View…），界面更干净
-  if (app.isPackaged) {
-    try {
-      Menu.setApplicationMenu(null);
-      mainWindow.setMenuBarVisibility(false);
-    } catch {
-      /* ignore */
-    }
-  }
+  // 安装应用菜单（文件 / 编辑 / 视图 / 主题 / 帮助）
+  installAppMenu();
 
   mainWindow.once('ready-to-show', () => {
     log('WINDOW', 'ready-to-show，显示窗口');
@@ -905,10 +1192,17 @@ function registerIpc() {
   }));
   handle('settings:set', (_event, payload = {}) => {
     const patch = {};
-    for (const key of ['downloadSource', 'customMirror', 'javaPath', 'msaClientId', 'browserHome']) {
+    for (const key of ['downloadSource', 'customMirror', 'javaPath', 'msaClientId', 'browserHome', 'language']) {
       if (payload[key] !== undefined) patch[key] = String(payload[key]);
     }
     const next = settings.write(patch);
+    if (patch.language) {
+      try {
+        installAppMenu(); // 菜单栏语言也跟着切
+      } catch {
+        /* ignore */
+      }
+    }
     log('SETTINGS', `已更新：${Object.keys(patch).join(', ') || '(无)'}`);
     return { ok: true, settings: next, mirror: mirror.status() };
   });
@@ -953,15 +1247,17 @@ function registerIpc() {
       return { ok: false, dir, error };
     }
   });
-  handle('ui:reset', () => {
-    const dir = ensureUiDir();
-    const source = path.join(__dirname, 'renderer');
-    if (dir === source) throw new Error('当前用的是内置目录，无法重置');
-    fs.rmSync(dir, { recursive: true, force: true });
-    copyDirSync(source, dir);
-    writeUiManifest(source, dir, app.getVersion());
-    return { ok: true, dir };
+  handle('ui:reset', () => resetUiTheme());
+
+  // ---------- 导入 / 导出 UI 主题 ----------
+  handle('ui:import', (_event, payload = {}) => importUiTheme(payload.mode === 'folder' ? 'folder' : 'zip'));
+  handle('ui:export', () => exportUiTheme());
+
+  handle('ui:reload', () => {
+    reloadMainWindow();
+    return { ok: true };
   });
+
   handle('auth:client-id', () => ({
     configured: auth.hasClientId(),
     clientId: settings.read().msaClientId || '',

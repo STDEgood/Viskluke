@@ -24,6 +24,8 @@ const DEFAULTS = {
   javaPath: '',
   // 微软正版登录用的 Azure 应用 client_id（没有它无法走设备码登录）
   msaClientId: '',
+  // 界面语言：zh-CN / en-US
+  language: 'zh-CN',
   // 内置浏览器首页 / 搜索（默认 Bing）
   browserHome: 'https://www.bing.com',
 };

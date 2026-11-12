@@ -472,3 +472,59 @@ npm run package:dir   :: 只出免安装目录
 
 
 
+
+
+### 11.4 1.1.3：极简首页 / 主题色 / 自建中继 / 主题导入
+
+- **首页去掉大标题**：`showPage('instances')` 时给 `.stage-head` 加 `hidden`，
+  首页只剩实例面板和「启动游戏」；其他页仍保留小标题。
+- **主题色**：`--accent: #0f9d8f`（青绿）+ `--accent-soft`，只用在选中项、链接 hover、
+  进度条、focus ring、ok 标签；其余保持黑白，整体仍是白底极简。
+- **动效**：统一 `cubic-bezier(.22,.8,.24,1)`、180–240ms；页面切换、菜单、卡片、按钮
+  过渡一致，并继续尊重 `prefers-reduced-motion`。
+- **更多联机方式（重点：CF 额度不够）**：
+  - 新增 [scripts/relay-server.js](scripts/relay-server.js)：自建中继，协议与 Worker 版一致，
+    `npm run relay:serve` 即可跑，支持房间口令、32 人上限、1MB 帧、403/409 语义。
+  - 服务器页新增「联机方式」下拉：Cloudflare 中继 / 自建中继，并给出口径说明与「怎么自建？」链接。
+  - 文档：[docs/RELAY-SELFHOST.md](docs/RELAY-SELFHOST.md)（含 Caddy wss 反代示例）。
+  - 验证：用 `RELAY_URL=ws://127.0.0.1:25677 npm run test:relay` 跑自建中继，
+    小包/256KB/并发/口令 403/无主机 409 全过。
+- **UI 主题导入/导出（解决“改不动/打不开目录”）**：
+  - 设置页新增：导入主题（zip）/ 导入主题（文件夹）/ 导出当前主题 / 重新加载界面。
+  - 主进程：`ui:import`（解压到临时目录、自动下探一层、校验 index.html 或 style.css、
+    先备份当前 UI 到 `userData/ui-backups` 保留 3 份、合并覆盖、写 custom 标记、reload）、
+    `ui:export`（把当前 UI 打成 zip）、`ui:reload`。
+  - 清单 `.viskluke-ui-manifest.json` 增加 `custom` 字段：自定义主题升级时**只补缺失文件**，
+    不覆盖用户内容；「恢复默认」才会清掉 custom。
+- 版本 1.1.2 → **1.1.3**。
+
+
+### 11.5 1.1.3 追加：应用菜单栏
+
+按用户要求，在最上面的菜单栏放置了必要选项（不再是空菜单/被隐藏）：
+
+- **文件**：打开日志文件、打开数据目录、打开下载目录、退出
+- **编辑**：撤销 / 重做 / 剪切 / 复制 / 粘贴 / 全选（标准 role，输入框里可用）
+- **视图**：重新加载界面（Ctrl+R）、开发者工具、实际大小 / 放大 / 缩小、全屏
+- **主题**：导入主题（zip / 文件夹）、导出当前主题、重新加载界面、**恢复默认主题…**（带确认框）
+- **帮助**：GitHub 仓库、自建中继文档、关于 Viskluke（显示版本 / Electron / 界面目录）
+
+实现：`main.js` 的 `installAppMenu()` + `importUiTheme()` / `exportUiTheme()` / `resetUiTheme()`。
+菜单项和设置页按钮共用同一套函数，避免两处逻辑不一致。
+启动时在日志里会打印 `[MENU] 应用菜单已创建`。
+
+
+### 11.6 1.1.3 追加：多语言（简体中文 / English）
+
+- 新增 [renderer/i18n.js](renderer/i18n.js)：以**中文原文为 key** 的翻译层，
+  启动时翻译 DOM 文本 / `placeholder` / `title`，并用 `MutationObserver`
+  覆盖后续动态生成的节点（下载列表、服务器状态等），不侵入现有 HTML/JS。
+- 语言存 `settings.language`（`zh-CN` / `en-US`），同时写一份到
+  `localStorage['viskluke.lang']` 供界面启动时读取；切换后自动 reload。
+- 设置页新增「界面语言」下拉；主进程菜单栏文案通过 `L()` 查表，
+  切换语言时 `installAppMenu()` 重建菜单。
+- 覆盖范围：导航、首页、下载页、服务器页、设置页、浏览器、登录/导入弹窗、
+  菜单栏、主题相关对话框；**带变量的句子**（如「已导入：xxx」）匹配不到，会回退中文。
+- 验证：CDP 探针把 `settings.language` 设为 `en-US` 后，导航显示
+  Play / Downloads / Servers / Browser / Settings，按钮为 `Launch game`，
+  搜索框 placeholder 为 `Search by name…`；切回 `zh-CN` 恢复中文。

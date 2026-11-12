@@ -200,6 +200,16 @@
 
       <!-- 自建中继（内网穿透）：没有公网 IP 也能让别人连进来 -->
       <div class="row-inline">
+        <label class="field-inline">联机方式
+          <select id="relay-source">
+            <option value="builtin">Cloudflare 中继（消耗额度）</option>
+            <option value="custom">自建中继（免费）</option>
+          </select>
+        </label>
+        <span class="hint-text grow" id="relay-source-hint"></span>
+        <button class="link" id="btn-relay-selfhost">怎么自建？</button>
+      </div>
+      <div class="row-inline">
         <span class="tag" id="relay-state">内网穿透：未开启</span>
         <input id="relay-room" class="w220" placeholder="房间号（自动生成）" maxlength="32" />
         <input id="relay-url" class="grow" placeholder="中继地址（默认 wss://relay.stde.eu.cc）" />
@@ -410,13 +420,26 @@
         </section>
 
         <section class="settings-card">
-          <h3>界面自定义</h3>
-          <p class="hint-text">界面文件在 userData/ui 下，打包后也能直接改：index.html、style.css。</p>
+          <h3>界面与语言</h3>
+          <label class="field">界面语言
+            <select id="set-language">
+              <option value="zh-CN">简体中文</option>
+              <option value="en-US">English</option>
+            </select>
+          </label>
+          <p class="hint-text">界面文件在 userData/ui 下，打包后也能直接改；也支持导入别人做的主题包（只要含 index.html 或 style.css）。</p>
           <code class="tiny" id="set-ui-dir"></code>
           <div class="row-actions">
+            <button class="btn subtle" id="set-ui-import">导入主题（zip）</button>
+            <button class="btn subtle" id="set-ui-import-folder">导入主题（文件夹）</button>
+            <button class="btn subtle" id="set-ui-export">导出当前主题</button>
+          </div>
+          <div class="row-actions">
+            <button class="btn subtle" id="set-ui-reload">重新加载界面</button>
             <button class="btn subtle" id="set-ui-open">打开界面目录</button>
             <button class="btn subtle" id="set-ui-reset">恢复默认界面</button>
           </div>
+          <p class="hint-text">导入前自动备份当前界面（保留最近 3 份）；恢复默认会清掉自定义主题。</p>
         </section>
 
         <section class="settings-card">
@@ -571,6 +594,7 @@
   </main>
 </div>
 
+<script src="i18n.js"></script>
 <script src="skin-editor.js"></script>
 <script src="renderer.js"></script>
 </body>
