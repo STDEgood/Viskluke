@@ -4,6 +4,9 @@ Minecraft 启动器 —— 离线/正版登录、Mod 与整合包一键安装、
 
 当前版本 **1.1.2** · Electron 33 · Windows 10 / 11
 
+> **下载安装包 / 免安装包**：<https://github.com/STDEgood/Viskluke/releases/latest>
+> 源码以 MIT 协议开源，见 [LICENSE](LICENSE)。
+
 ---
 
 ## 1. 能干什么
