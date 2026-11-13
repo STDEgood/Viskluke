@@ -2,7 +2,7 @@
 
 Minecraft 启动器 —— 离线/正版登录、Mod 与整合包一键安装、一键开服 + 自定义域名（Viskluke Address）。
 
-当前版本 **1.1.3** · Electron 33 · Windows 10 / 11
+当前版本 **1.2.0** · Electron 33 · Windows 10 / 11
 
 > **下载安装包 / 免安装包**：<https://github.com/STDEgood/Viskluke/releases/latest>
 > 源码以 MIT 协议开源，见 [LICENSE](LICENSE)。
@@ -98,6 +98,8 @@ npm run package:dir    :: 只出免安装目录 → dist\win-unpacked\Viskluke.e
 | **正版登录** | 登录 → 微软正版 | 设备码登录，需要你自己的 Azure 应用 `client_id`，在 设置 → 正版登录 里填（见下） |
 | **联机方式** | 服务器 → 联机方式 | Cloudflare 中继（消耗额度）/ **自建中继（免费）**；自建只需一台公网机器，`npm run relay:serve`，详见 [docs/RELAY-SELFHOST.md](docs/RELAY-SELFHOST.md)。没公网时用局域网 / IPv6 / UPnP，都不花钱 |
 | **多语言** | 设置 → 界面语言 | 简体中文 / English；菜单栏同步切换。带变量的少数提示（如「已导入：xxx」）会回退中文 |
+| **手机遥控** | 设置 → 手机遥控 | 手机与电脑同一 WiFi，手机浏览器打开显示的地址，即可启动游戏 / 开关服务器 / 开关联机隧道；地址带访问令牌 |
+| **YiStarLine 登录** | 登录 → YiStarLine | 走本机 YiStarLine Account（默认 `127.0.0.1:8600`）浏览器授权 + 票据兑换；App Secret 只存本机 `yistar.json` |
 
 **正版登录的 3 分钟准备**（微软要求每个启动器用自己的应用注册，不能共用别人的）：
 

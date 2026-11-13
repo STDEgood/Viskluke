@@ -23,3 +23,6 @@ worker/.wrangler/
 .idea/
 .DS_Store
 Thumbs.db
+
+# YiStarLine SSO 本机凭据（绝不提交）
+yistar.json

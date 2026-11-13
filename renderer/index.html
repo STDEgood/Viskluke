@@ -443,6 +443,38 @@
         </section>
 
         <section class="settings-card">
+          <h3>手机遥控（Android / 手机浏览器）</h3>
+          <p class="hint-text">手机和电脑连同一个 WiFi，用手机浏览器打开下面的地址，就能启动游戏、开关服务器和联机隧道。</p>
+          <div class="row-actions">
+            <button class="btn" id="set-remote-toggle">开启手机遥控</button>
+            <button class="btn subtle" id="set-remote-copy">复制地址</button>
+          </div>
+          <code class="tiny" id="set-remote-url">未开启</code>
+          <p class="hint-text" id="set-remote-hint">地址里带访问令牌，别发给别人；公网访问需自己映射端口。</p>
+        </section>
+
+        <section class="settings-card">
+          <h3>YiStarLine 账号</h3>
+          <p class="hint-text">接入本机 YiStarLine Account（默认 127.0.0.1:8600）。应用密钥只存在本机，不会进仓库。</p>
+          <label class="field">服务地址
+            <input id="set-sso-base" placeholder="http://127.0.0.1:8600" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="field">App ID
+            <input id="set-sso-appid" placeholder="ylc_..." autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="field">App Secret
+            <input id="set-sso-secret" type="password" placeholder="ylsec_..." autocomplete="off" spellcheck="false" />
+          </label>
+          <div class="row-actions">
+            <button class="btn" id="set-sso-save">保存</button>
+            <button class="btn subtle" id="set-sso-test">测试连接</button>
+            <button class="btn subtle" id="set-sso-logout">退出账号</button>
+            <span class="tiny" id="set-sso-state"></span>
+          </div>
+          <p class="hint-text">登录入口在左上角头像 →「YiStarLine」标签页。</p>
+        </section>
+
+        <section class="settings-card">
           <h3>正版登录</h3>
           <p class="hint-text">微软设备码登录需要一个 Azure 应用的 client_id（免费注册，README 有步骤）。</p>
           <label class="field">Client ID
@@ -492,6 +524,7 @@
         <div class="tabs">
           <button class="tab active" data-auth-tab="offline">离线登录</button>
           <button class="tab" data-auth-tab="microsoft">微软正版</button>
+          <button class="tab" data-auth-tab="yistar">YiStarLine</button>
         </div>
 
         <div id="auth-offline">
@@ -507,6 +540,12 @@
           <p class="hint-text" id="auth-status">点击下方按钮，浏览器会打开微软授权页。</p>
           <div class="uuid-line"><span class="tiny">设备代码</span><code id="user-code">—</code></div>
           <button class="btn primary block" id="btn-ms-login">开始微软登录</button>
+        </div>
+
+        <div class="hidden" id="auth-yistar">
+          <p class="hint-text" id="yl-status">用本机 YiStarLine Account 登录；首次使用先到「设置 → YiStarLine 账号」填 App ID / App Secret。</p>
+          <button class="btn primary block" id="btn-yl-login">用 YiStarLine 登录</button>
+          <p class="hint-text" id="yl-user"></p>
         </div>
       </div>
     </div>

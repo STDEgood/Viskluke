@@ -256,7 +256,8 @@
       return;
     }
     $('account-name').textContent = account.name;
-    $('account-type').textContent = account.type === 'offline' ? '离线账号' : '微软正版';
+    $('account-type').textContent =
+      account.via === 'yistar' ? 'YiStarLine' : account.type === 'offline' ? '离线账号' : '微软正版';
     avatar.textContent = account.name.slice(0, 1);
     avatar.classList.add('online');
   }
@@ -267,7 +268,10 @@
     if (account && account.name) fillWhitelistFromAccount();
     if (account && account.type === 'offline') {
       try {
-        localStorage.setItem(ACCOUNT_KEY, JSON.stringify({ name: account.name, uuid: account.uuid, type: 'offline' }));
+        localStorage.setItem(
+          ACCOUNT_KEY,
+          JSON.stringify({ name: account.name, uuid: account.uuid, type: 'offline', via: account.via || '' })
+        );
       } catch {
         /* ignore */
       }
@@ -290,6 +294,20 @@
     });
     $('auth-offline').classList.toggle('hidden', tab !== 'offline');
     $('auth-microsoft').classList.toggle('hidden', tab !== 'microsoft');
+    $('auth-yistar').classList.toggle('hidden', tab !== 'yistar');
+    if (tab === 'yistar') {
+      api
+        .yistarStatus()
+        .then((status) => {
+          if (status && status.loggedIn && status.user) {
+            $('yl-status').textContent = '已登录 YiStarLine';
+            $('yl-user').textContent = `账号：${status.user.nickname || status.user.username || status.user.name || ''}`;
+          } else if (status && !status.configured) {
+            $('yl-status').textContent = '还没配置：到「设置 → YiStarLine 账号」填 App ID / App Secret。';
+          }
+        })
+        .catch(() => {});
+    }
     if (tab === 'microsoft') {
       api.authClientId().then((info) => {
         if (!info || !info.configured) {
@@ -342,6 +360,35 @@
     toast(`已登录：${result.minecraft.name}（离线）`, 'success');
   });
 
+  // YiStarLine 一键登录（本机 SSO）
+  $('btn-yl-login').addEventListener('click', async () => {
+    const button = $('btn-yl-login');
+    button.disabled = true;
+    $('yl-status').textContent = '正在打开浏览器授权页…';
+    try {
+      const result = await api.yistarLogin();
+      if (!result || !result.ok) throw new Error((result && result.error) || '登录失败');
+      setAccount(result.account);
+      closeAuth();
+      toast(`已登录 YiStarLine：${result.account.name}`, 'success');
+    } catch (error) {
+      $('yl-status').textContent = `登录失败：${error.message || error}`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+
+  // 手机遥控发来的动作（目前只有「启动实例」）
+  api.onRemoteAction((message) => {
+    if (!message || message.type !== 'launch') return;
+    const instance = state.instances.find((item) => item.id === message.instanceId);
+    if (!instance) return toast('手机遥控：找不到这个实例', 'error');
+    showPage('instances');
+    selectInstance(instance.id);
+    setTimeout(() => $('btn-launch').click(), 350);
+    toast(`手机遥控：启动 ${instance.name}`, 'info', 6000);
+  });
+
   api.onDeviceCode(({ userCode }) => {
     switchAuthTab('microsoft');
     $('auth-modal').classList.remove('hidden');
@@ -376,7 +423,7 @@
       const saved = JSON.parse(localStorage.getItem(ACCOUNT_KEY) || 'null');
       if (saved && saved.type === 'offline' && saved.name) {
         api.authOffline(saved.name).then((result) => {
-          if (result && result.ok) setAccount(result.minecraft);
+          if (result && result.ok) setAccount({ ...result.minecraft, via: saved.via || '' });
         });
       }
     } catch {
@@ -2557,6 +2604,8 @@
       $('set-msa-state').textContent = info.msaConfigured ? '已配置，可以直接正版登录' : '未配置';
       $('set-mirror-state').textContent = `当前：${info.mirror.label}`;
       await refreshJavaPanel();
+      await refreshRemotePanel();
+      await refreshSsoPanel();
     } catch (error) {
       toast(`读取设置失败：${error.message || error}`, 'error');
     }
@@ -2668,6 +2717,92 @@
   });
 
   $('set-ui-reload').addEventListener('click', () => api.uiReload());
+
+  // ---- 手机遥控 ----
+  let remoteInfo = { running: false, url: '' };
+  async function refreshRemotePanel() {
+    try {
+      const info = await api.remoteStatus();
+      remoteInfo = info || { running: false };
+      $('set-remote-toggle').textContent = remoteInfo.running ? '关闭手机遥控' : '开启手机遥控';
+      $('set-remote-url').textContent = remoteInfo.running
+        ? remoteInfo.url || '已开启，但没找到局域网地址'
+        : '未开启';
+      $('set-remote-hint').textContent = remoteInfo.running
+        ? '手机连同一个 WiFi，用浏览器打开上面的地址即可控制。地址里带访问令牌，别发给别人。'
+        : '开启后手机浏览器可访问；只监听局域网，公网访问需自己映射端口。';
+    } catch (error) {
+      $('set-remote-url').textContent = `读取状态失败：${error.message || error}`;
+    }
+  }
+  $('set-remote-toggle').addEventListener('click', async () => {
+    try {
+      const info = remoteInfo.running ? await api.remoteStop() : await api.remoteStart();
+      remoteInfo = info || remoteInfo;
+      await refreshRemotePanel();
+      toast(remoteInfo.running ? '手机遥控已开启' : '手机遥控已关闭', 'success');
+    } catch (error) {
+      toast(`操作失败：${error.message || error}`, 'error');
+    }
+  });
+  $('set-remote-copy').addEventListener('click', async () => {
+    if (!remoteInfo.running || !remoteInfo.url) return toast('先开启手机遥控', 'warn');
+    try {
+      await navigator.clipboard.writeText(remoteInfo.url);
+      toast('遥控地址已复制', 'success');
+    } catch {
+      toast(remoteInfo.url, 'info', 8000);
+    }
+  });
+
+  // ---- YiStarLine 账号 ----
+  async function refreshSsoPanel() {
+    try {
+      const status = await api.yistarStatus();
+      $('set-sso-base').value = status.baseUrl || '';
+      $('set-sso-appid').value = status.appId || '';
+      $('set-sso-secret').value = '';
+      $('set-sso-secret').placeholder = status.hasSecret ? '已保存（留空保持不变）' : 'ylsec_...';
+      const who = status.user && (status.user.nickname || status.user.username || status.user.name || '');
+      $('set-sso-state').textContent = status.loggedIn
+        ? `已登录：${who || 'YiStarLine'}`
+        : status.configured
+          ? '已配置，未登录'
+          : '未配置';
+    } catch (error) {
+      $('set-sso-state').textContent = `读取失败：${error.message || error}`;
+    }
+  }
+  $('set-sso-save').addEventListener('click', async () => {
+    try {
+      await api.yistarConfig({
+        baseUrl: $('set-sso-base').value.trim(),
+        appId: $('set-sso-appid').value.trim(),
+        appSecret: $('set-sso-secret').value.trim(),
+      });
+      await refreshSsoPanel();
+      toast('YiStarLine 配置已保存', 'success');
+    } catch (error) {
+      toast(`保存失败：${error.message || error}`, 'error');
+    }
+  });
+  $('set-sso-test').addEventListener('click', async () => {
+    try {
+      await api.yistarTest();
+      toast('连接成功：应用 ID / 密钥有效', 'success');
+    } catch (error) {
+      toast(`连接失败：${error.message || error}`, 'error', 8000);
+    }
+  });
+  $('set-sso-logout').addEventListener('click', async () => {
+    try {
+      await api.yistarLogout();
+      await refreshSsoPanel();
+      toast('已退出 YiStarLine', 'success');
+    } catch (error) {
+      toast(`退出失败：${error.message || error}`, 'error');
+    }
+  });
 
   $('set-language').addEventListener('change', async () => {
     const language = $('set-language').value === 'en-US' ? 'en-US' : 'zh-CN';

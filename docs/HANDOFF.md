@@ -528,3 +528,30 @@ npm run package:dir   :: 只出免安装目录
 - 验证：CDP 探针把 `settings.language` 设为 `en-US` 后，导航显示
   Play / Downloads / Servers / Browser / Settings，按钮为 `Launch game`，
   搜索框 placeholder 为 `Search by name…`；切回 `zh-CN` 恢复中文。
+
+
+### 11.7 1.2.0：手机遥控 + YiStarLine 账号接入
+
+**手机遥控（Android / 手机浏览器）**
+
+- 新增 `remote.js`：局域网 HTTP 控制台，`/` 是移动端页面，`/api/state` 读状态，
+  `/api/action` 执行 launch / server-start / server-stop / relay-start / relay-stop。
+- 安全：只监听局域网、必须带 token（`settings.remoteToken`，首次自动生成并持久化）、
+  每 IP 每分钟 300 次限流；页面不含账号信息。
+- 设置页「手机遥控」：一键开关、显示地址、复制地址；启动器启动时若 `remoteEnabled` 自动恢复。
+- 启动游戏由主进程转发 `remote:action` 给渲染层，复用现有启动流程（账号/Java/版本都走原逻辑）。
+- 实测：无 token 返回 401；带 token 读到实例状态；`launch` 动作回执 `{ok:true}`。
+
+**YiStarLine 账号（本机 SSO，协议 v1）**
+
+- 新增 `yistar-sso.js`：`/sso/authorize` 打开浏览器 → 本地临时端口接 `/sso/callback`
+  → 校验 `state` → `POST /api/v1/ticket/redeem`（带 app_secret）→ 保存 access_token 与用户资料。
+- 凭据只写 `<userData>/yistar.json`（已加入 .gitignore）；日志只打 URL，不打密钥。
+- 设置页「YiStarLine 账号」：服务地址 / App ID / App Secret / 测试连接（`/api/v1/app/verify`，
+  404 时回退 `/api/v1/health`）/ 退出账号。
+- 登录弹窗新增 YiStarLine 标签页；成功后用账号昵称映射成合法玩家名（3–16 位字母数字下划线）
+  + 离线 UUID 进入启动流程，账号类型显示 `YiStarLine`。
+- 说明：兑换接口字段按文档常见命名做了兼容（`access_token|accessToken|token`、
+  `user|profile|account`）；若实际返回结构不同，改 `normalize()` 即可。
+- 未验证项：本机当前没有 8600 服务，SSO 完整链路（授权/兑换/用户信息）需要用户在本机启动
+  YiStarLine Account 并填真实 App Secret 后实测。

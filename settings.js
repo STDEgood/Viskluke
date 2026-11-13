@@ -26,6 +26,10 @@ const DEFAULTS = {
   msaClientId: '',
   // 界面语言：zh-CN / en-US
   language: 'zh-CN',
+  // 手机遥控（局域网 HTTP 控制台）
+  remoteEnabled: false,
+  remotePort: 47821,
+  remoteToken: '',
   // 内置浏览器首页 / 搜索（默认 Bing）
   browserHome: 'https://www.bing.com',
 };

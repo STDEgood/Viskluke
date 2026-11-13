@@ -281,10 +281,14 @@ const relay = require('./relay');
 const settings = require('./settings');
 const mirror = require('./mirror');
 const java = require('./java');
+const remote = require('./remote');
+const sso = require('./yistar-sso');
 
 // 中继（内网穿透）运行时状态：同一时刻各一个
 let relayHost = null;
 let relayGuest = null;
+// 手机遥控 HTTP 服务
+let remoteServer = null;
 
 let mainWindow = null;
 let quitting = false;
@@ -697,6 +701,106 @@ async function menuResetTheme() {
   } catch (error) {
     dialog.showErrorBox('恢复默认主题失败', String((error && error.message) || error));
   }
+}
+
+// ---------------------------------------------------------------------------
+// 手机遥控：局域网 HTTP 控制台（Android / 手机浏览器）
+// ---------------------------------------------------------------------------
+
+function remoteState() {
+  return {
+    app: { version: app.getVersion() },
+    instances: instances.list().map((item) => ({
+      id: item.id,
+      name: item.name,
+      version: item.version,
+      loader: item.loader || '',
+    })),
+    servers: servers.list().map((item) => ({
+      id: item.id,
+      name: item.name,
+      core: item.core,
+      version: item.version,
+      address: item.address || item.lanAddress || '',
+      running: Boolean(item.running),
+      status: item.status || 'stopped',
+    })),
+    relay: {
+      host: relayHost
+        ? { room: relayHost.room, key: Boolean(relayHost.key), localPort: relayHost.localPort }
+        : null,
+      guest: relayGuest
+        ? { room: relayGuest.room, address: relayGuest.address, connections: relayGuest.connections }
+        : null,
+    },
+  };
+}
+
+function remoteStatus() {
+  const pref = settings.read();
+  return {
+    running: Boolean(remoteServer),
+    enabled: Boolean(pref.remoteEnabled),
+    port: remoteServer ? remoteServer.port : Number(pref.remotePort) || remote.DEFAULT_PORT,
+    token: remoteServer ? remoteServer.token : pref.remoteToken || '',
+    url: remoteServer ? remoteServer.urls[0] || remoteServer.localUrl : '',
+    urls: remoteServer ? remoteServer.urls : [],
+  };
+}
+
+async function startRemoteControl() {
+  if (remoteServer) return remoteStatus();
+  const pref = settings.read();
+  const token = remote.ensureToken(pref.remoteToken);
+  if (token !== pref.remoteToken) settings.write({ remoteToken: token });
+  remoteServer = await remote.startRemote({
+    port: Number(pref.remotePort) || remote.DEFAULT_PORT,
+    token,
+    getState: remoteState,
+    onLog: (line) => log('REMOTE', line),
+    actions: {
+      launch: async (payload) => {
+        const target = instances.list().find((item) => item.id === String(payload.instanceId || ''));
+        if (!target) throw new Error('找不到这个实例');
+        if (!mainWindow || mainWindow.isDestroyed()) throw new Error('启动器窗口没有打开');
+        sendToRenderer('remote:action', { type: 'launch', instanceId: target.id });
+        return { instance: target.name };
+      },
+      'server-start': async (payload) => servers.startServer({ id: String(payload.id || '') }),
+      'server-stop': async (payload) => servers.stopServer(String(payload.id || '')),
+      'relay-start': async () => {
+        if (relayHost) return { room: relayHost.room, already: true };
+        const cfg = cloudflare.status();
+        const relayUrl = String(cfg.relayUrl || '').trim();
+        if (!relayUrl) throw new Error('没有可用的中继地址');
+        relayHost = await relay.startHostTunnel({
+          relayUrl,
+          room: relay.suggestRoom('mc'),
+          localPort: 25565,
+          onLog: (line) => log('RELAY', line),
+        });
+        return { room: relayHost.room };
+      },
+      'relay-stop': async () => {
+        if (relayHost) {
+          relayHost.close();
+          relayHost = null;
+        }
+        return { ok: true };
+      },
+    },
+  });
+  log('REMOTE', `手机遥控已开启：${remoteServer.urls[0] || remoteServer.localUrl}`);
+  return remoteStatus();
+}
+
+async function stopRemoteControl() {
+  if (!remoteServer) return remoteStatus();
+  const server = remoteServer;
+  remoteServer = null;
+  await server.close();
+  log('REMOTE', '手机遥控已关闭');
+  return remoteStatus();
 }
 
 function sendToRenderer(channel, payload) {
@@ -1263,6 +1367,35 @@ function registerIpc() {
     clientId: settings.read().msaClientId || '',
   }));
 
+  // ---------- 手机遥控 ----------
+  handle('remote:status', () => remoteStatus());
+  handle('remote:start', async () => {
+    settings.write({ remoteEnabled: true });
+    return startRemoteControl();
+  });
+  handle('remote:stop', async () => {
+    settings.write({ remoteEnabled: false });
+    return stopRemoteControl();
+  });
+
+  // ---------- YiStarLine 账号（本机 SSO）----------
+  handle('yistar:status', () => sso.status());
+  handle('yistar:config', (_event, payload = {}) => sso.saveConfig(payload));
+  handle('yistar:test', () => sso.test());
+  handle('yistar:userinfo', () => sso.userinfo());
+  handle('yistar:logout', () => sso.logout());
+  handle('yistar:login', async () => {
+    const result = await sso.login({ onLog: (line) => log('SSO', line) });
+    const account = {
+      name: result.playerName,
+      uuid: result.uuid,
+      type: 'offline',
+      accessToken: '0',
+      via: 'yistar',
+    };
+    return { ok: true, user: result.user, account };
+  });
+
   // ---------- 内置浏览器 ----------
   handle('browser:open-downloads', async () => {
     const dir = path.join(app.getPath('userData'), 'downloads');
@@ -1363,6 +1496,10 @@ app.whenReady().then(
     }
     createMainWindow();
 
+    if (settings.read().remoteEnabled) {
+      startRemoteControl().catch((error) => log('REMOTE', `手机遥控启动失败：${error.message}`));
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createMainWindow();
     });
@@ -1391,6 +1528,7 @@ app.on('before-quit', (event) => {
   quitting = true;
   event.preventDefault();
   log('BOOT', '开始优雅退出：停止所有正在运行的服务器');
+  stopRemoteControl().catch(() => {});
 
   Promise.race([servers.shutdownAll(), sleep(9000)])
     .catch((error) => log('BOOT', `关闭服务器时出错：${describeError(error)}`))

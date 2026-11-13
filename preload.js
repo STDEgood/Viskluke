@@ -23,6 +23,11 @@ contextBridge.exposeInMainWorld('viskluke', {
   authOffline: (name) => ipcRenderer.invoke('auth:offline', name),
   authStart: () => ipcRenderer.invoke('auth:start'),
   authRefresh: (refreshToken) => ipcRenderer.invoke('auth:refresh', refreshToken),
+  yistarStatus: () => ipcRenderer.invoke('yistar:status'),
+  yistarConfig: (payload) => ipcRenderer.invoke('yistar:config', payload),
+  yistarTest: () => ipcRenderer.invoke('yistar:test'),
+  yistarLogin: () => ipcRenderer.invoke('yistar:login'),
+  yistarLogout: () => ipcRenderer.invoke('yistar:logout'),
   launch: (config) => ipcRenderer.invoke('launch:start', config),
   openGameRoot: (instance) => ipcRenderer.invoke('launch:open-root', instance),
 
@@ -101,6 +106,11 @@ contextBridge.exposeInMainWorld('viskluke', {
   uiExport: () => ipcRenderer.invoke('ui:export'),
   uiReload: () => ipcRenderer.invoke('ui:reload'),
 
+  // 手机遥控（Android / 手机浏览器）
+  remoteStatus: () => ipcRenderer.invoke('remote:status'),
+  remoteStart: () => ipcRenderer.invoke('remote:start'),
+  remoteStop: () => ipcRenderer.invoke('remote:stop'),
+
   // ---------------- 内置浏览器 ----------------
   browserOpenDownloads: () => ipcRenderer.invoke('browser:open-downloads'),
   browserOpenExternal: (url) => ipcRenderer.invoke('browser:open-external', url),
@@ -113,6 +123,7 @@ contextBridge.exposeInMainWorld('viskluke', {
   onJavaProgress: (cb) => subscribe('java:progress', cb),
   onBrowserDownload: (cb) => subscribe('browser:download', cb),
   onBrowserOpenTab: (cb) => subscribe('browser:open-tab', cb),
+  onRemoteAction: (cb) => subscribe('remote:action', cb),
   onServerLog: (cb) => subscribe('server:log', cb),
   onServerStatus: (cb) => subscribe('server:status', cb),
   onServerProgress: (cb) => subscribe('server:progress', cb),
