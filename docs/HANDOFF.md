@@ -571,3 +571,14 @@ npm run package:dir   :: 只出免安装目录
 - **测试连接**：有 secret → `/api/v1/app/verify`；只有应用码 → `/api/v1/apps/lookup?code=`。
 - 已验证：`/api/v1/apps/lookup?code=YLP-Y6AE-SC5X-JFE3` 返回 Viskluke / StarDegree / Protect 证书信息。
 - 待验证：从「首次授权」到「兑换」的完整交互链路（需要浏览器里登录 YAUA 并点允许）。
+
+
+### 11.9 1.2.2：授权页改为内置窗口
+
+- 现象：点「用 YiStarLine 登录」后，系统浏览器打不开授权页（默认浏览器缺失/被拦截时 `shell.openExternal` 无声失败）。
+- 改法：`yistar-sso.login()` 优先用 **Electron BrowserWindow**（520×720，独立 `persist:viskluke-sso` 分区）加载授权页；
+  通过 `will-redirect` / `will-navigate` 拦截跳转到 `http://127.0.0.1:47830/sso/callback`，直接取 `ticket` 并关闭窗口，
+  **不需要真的监听 47830**，也不依赖系统浏览器。
+- 兜底：没有 BrowserWindow 的环境仍回退「系统浏览器 + 本地临时服务」。
+- 验证：CDP 探针触发登录后出现新窗口，URL 为
+  `http://127.0.0.1:8600/#/login?...&app=Viskluke`，说明窗口加载成功、应用识别正常。

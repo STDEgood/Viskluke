@@ -1385,7 +1385,7 @@ function registerIpc() {
   handle('yistar:userinfo', () => sso.userinfo());
   handle('yistar:logout', () => sso.logout());
   handle('yistar:login', async () => {
-    const result = await sso.login({ onLog: (line) => log('SSO', line) });
+    const result = await sso.login({ parent: mainWindow, onLog: (line) => log('SSO', line) });
     const account = {
       name: result.playerName,
       uuid: result.uuid,

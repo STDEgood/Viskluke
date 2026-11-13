@@ -19,7 +19,8 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const crypto = require('crypto');
-const { shell } = require('electron');
+const { shell, BrowserWindow } = require('electron');
+const CALLBACK_URI = 'http://127.0.0.1:47830/sso/callback';
 
 const DEFAULT_BASE = 'http://127.0.0.1:8600';
 const TIMEOUT_MS = 180_000;
@@ -230,61 +231,90 @@ function openBrowser(url) {
 }
 
 async function login(options = {}) {
-  const { onLog = () => {} } = options;
+  const { onLog = () => {}, parent = null } = options;
   const eff = effective();
   if (!eff.publicCode && !(eff.appId && eff.appSecret)) {
     throw new Error('先在「设置 → YiStarLine 账号」里填写应用码（或 App ID / App Secret）');
   }
   const state = crypto.randomBytes(16).toString('hex');
 
-  // 回调必须用白名单里的固定端口：Account 的 {port} 展开成它自己的 8600，不是通配
-  const ports = Array.isArray(options.ports) && options.ports.length ? options.ports : [47830, 47831, 47832];
-  const server = http.createServer();
-  let port = 0;
-  for (const candidate of ports) {
-    try {
-      await new Promise((resolve, reject) => {
-        const onError = (error) => {
-          server.removeListener('error', onError);
-          reject(error);
-        };
-        server.once('error', onError);
-        server.listen(candidate, '127.0.0.1', () => {
-          server.removeListener('error', onError);
-          resolve();
-        });
-      });
-      port = candidate;
-      break;
-    } catch (error) {
-      if (error.code !== 'EADDRINUSE') throw error;
-      onLog(`[SSO] 回调端口 ${candidate} 被占用，试下一个`);
-    }
-  }
-  if (!port) throw new Error(`回调端口 ${ports.join(' / ')} 都被占用，请关闭占用程序后重试`);
-
-  const redirectUri = `http://127.0.0.1:${port}/sso/callback`;
+  // 回调固定用白名单里的 47830：窗口里拦截跳转拿 ticket，不需要真的监听端口，
+  // 也就不怕端口被占用 / 系统浏览器打不开。
   const params = new URLSearchParams();
   if (eff.publicCode) params.set('code', eff.publicCode);
   if (eff.appId) params.set('app_id', eff.appId);
   if (eff.name) params.set('name', eff.name);
   if (eff.publisher) params.set('publisher', eff.publisher);
-  params.set('redirect_uri', redirectUri);
+  params.set('redirect_uri', CALLBACK_URI);
   params.set('state', state);
   const authorizeUrl = `${eff.baseUrl}/sso/authorize?${params.toString()}`;
-
   onLog(`[SSO] 打开授权页：${authorizeUrl}`);
-  const callback = waitForCallback(server, TIMEOUT_MS);
-  openBrowser(authorizeUrl).catch((error) => onLog(`[SSO] 打开浏览器失败：${error.message}`));
 
-  let ticket;
-  try {
-    const result = await callback;
-    if (result.state !== state) throw Object.assign(new Error('state 不匹配，已拒绝'), { code: 'state_mismatch' });
-    ticket = result.ticket;
-  } finally {
-    server.close();
+  let ticket = '';
+  if (BrowserWindow) {
+    ticket = await new Promise((resolve, reject) => {
+      const win = new BrowserWindow({
+        width: 520,
+        height: 720,
+        parent: parent || undefined,
+        center: true,
+        autoHideMenuBar: true,
+        title: 'YiStarLine 登录',
+        webPreferences: { partition: 'persist:viskluke-sso', sandbox: true, contextIsolation: true },
+      });
+      let settled = false;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try {
+          win.destroy();
+        } catch {
+          /* ignore */
+        }
+        fn(value);
+      };
+      const inspect = (event, url) => {
+        if (!String(url || '').startsWith(CALLBACK_URI)) return;
+        try {
+          event.preventDefault();
+        } catch {
+          /* ignore */
+        }
+        const parsed = new URL(url);
+        const error = parsed.searchParams.get('error') || '';
+        const returnedState = parsed.searchParams.get('state') || '';
+        if (error) return finish(reject, Object.assign(new Error(`授权失败：${error}`), { code: error }));
+        if (returnedState !== state) return finish(reject, new Error('state 不匹配，已拒绝'));
+        finish(resolve, parsed.searchParams.get('ticket') || '');
+      };
+      const timer = setTimeout(() => finish(reject, new Error('等待授权超时（3 分钟）')), TIMEOUT_MS);
+      win.webContents.on('will-redirect', inspect);
+      win.webContents.on('will-navigate', inspect);
+      win.webContents.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
+        if (isMainFrame) onLog(`[SSO] 授权页加载失败：${code} ${description} ${url}`);
+      });
+      win.on('closed', () => finish(reject, new Error('授权窗口已关闭')));
+      win.loadURL(authorizeUrl).catch((error) => finish(reject, error));
+    });
+  } else {
+    // 极端兜底：没有 BrowserWindow 时退回系统浏览器 + 临时端口
+    const server = http.createServer();
+    await new Promise((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(47830, '127.0.0.1', resolve);
+    });
+    const callback = waitForCallback(server, TIMEOUT_MS);
+    openBrowser(authorizeUrl).catch((error) => onLog(`[SSO] 打开浏览器失败：${error.message}`));
+    try {
+      const result = await callback;
+      if (result.state !== state) throw new Error('state 不匹配，已拒绝');
+      ticket = result.ticket;
+    } finally {
+      server.close();
+    }
   }
+  if (!ticket) throw Object.assign(new Error('授权没有拿到票据'), { code: 'no_ticket' });
 
   // 优先用应用码兑换（别人机器首次授权后是 imported 应用，不需要 secret）；
   // 失败再回退 app_id + app_secret（开发者本机是 managed 应用）。
