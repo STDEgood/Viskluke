@@ -331,3 +331,8 @@ Cloudflare Worker 代理的代码和部署说明在 [worker/](worker/)。
   Minecraft 游戏本体、材质、音效、服务端核心的版权归各自所有者，本仓库不包含任何游戏资源，
   均由启动器在运行时从官方源下载；使用需自备正版账号并遵守 Minecraft EULA。
 - 「Viskluke」名称与图标仅用于标识本项目；MIT 许可证只授予代码层面的版权许可，不授予商标使用权。
+
+## Android 端（完整 Java 版）
+
+APK：`dist/Viskluke-Android-1.0.0.apk`（基于 PojavLauncher，GPLv3）。
+构建说明与 branding patch 见 [android-pojav/README.md](android-pojav/README.md)。
