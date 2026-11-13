@@ -106,6 +106,37 @@ async function ensureWinCodeSign() {
   log(`已放入缓存：${path.relative(ROOT, WIN_CODE_SIGN)}`);
 }
 
+/**
+ * 把本机 config.sso.local.json 注入成打包用的 sso-defaults.json。
+ * 这样 App ID / App Secret 不会进 Git 仓库，但会随安装包分发，用户零配置登录。
+ */
+function injectSsoDefaults() {
+  const configPath = path.join(ROOT, 'config.sso.local.json');
+  const target = path.join(ROOT, 'sso-defaults.json');
+  let payload = {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf8').replace(/^\uFEFF/, ''));
+    if (raw && (raw.publicCode || (raw.appId && raw.appSecret))) {
+      payload = {
+        publicCode: String(raw.publicCode || '').trim().toUpperCase(),
+        name: String(raw.name || 'Viskluke').trim(),
+        publisher: String(raw.publisher || '').trim(),
+        baseUrl: String(raw.baseUrl || 'http://127.0.0.1:8600').trim(),
+      };
+      // 默认不打包 secret：别人机器走应用码首次授权，不需要密钥。
+      // 只有显式设置 VISKLUKE_SSO_INCLUDE_SECRET=1 时才注入（本机调试用）。
+      if (process.env.VISKLUKE_SSO_INCLUDE_SECRET === '1' && raw.appSecret) {
+        payload.appId = String(raw.appId || '').trim();
+        payload.appSecret = String(raw.appSecret || '').trim();
+      }
+    }
+  } catch {
+    /* 没配置就写空对象 */
+  }
+  fs.writeFileSync(target, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  log(payload.publicCode ? '已注入内置 YiStarLine 应用码（sso-defaults.json）' : '未配置内置 SSO 应用，sso-defaults.json 为空');
+}
+
 function runBuilder(args) {
   if (!fs.existsSync(BUILDER_CLI)) fail('没装 electron-builder：先 npm install');
   const buildTemp = path.join(CACHE_ROOT, 'tmp');
@@ -234,6 +265,7 @@ async function main() {
   log(`镜像：${MIRROR}`);
 
   await ensureWinCodeSign();
+  injectSsoDefaults();
   runBuilder(['--dir', ...args.filter((arg) => arg !== '--dir')]);
   if (!dirOnly) runInno(pkg.version);
   buildPortable(pkg.version);

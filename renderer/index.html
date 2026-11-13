@@ -455,20 +455,26 @@
 
         <section class="settings-card">
           <h3>YiStarLine 账号</h3>
-          <p class="hint-text">接入本机 YiStarLine Account（默认 127.0.0.1:8600）。应用密钥只存在本机，不会进仓库。</p>
-          <label class="field">服务地址
-            <input id="set-sso-base" placeholder="http://127.0.0.1:8600" autocomplete="off" spellcheck="false" />
-          </label>
-          <label class="field">App ID
-            <input id="set-sso-appid" placeholder="ylc_..." autocomplete="off" spellcheck="false" />
-          </label>
-          <label class="field">App Secret
-            <input id="set-sso-secret" type="password" placeholder="ylsec_..." autocomplete="off" spellcheck="false" />
-          </label>
+          <p class="hint-text" id="set-sso-builtin-hint">已内置 Viskluke 官方应用，点左上角头像 →「YiStarLine」即可一键登录，不需要填任何东西。</p>
+          <div class="hidden" id="sso-manual">
+            <label class="field">应用码（YLP-…，可替代 ID/Secret）
+              <input id="set-sso-code" placeholder="YLP-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field">服务地址
+              <input id="set-sso-base" placeholder="http://127.0.0.1:8600" autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field">App ID
+              <input id="set-sso-appid" placeholder="ylc_..." autocomplete="off" spellcheck="false" />
+            </label>
+            <label class="field">App Secret
+              <input id="set-sso-secret" type="password" placeholder="ylsec_..." autocomplete="off" spellcheck="false" />
+            </label>
+          </div>
           <div class="row-actions">
             <button class="btn" id="set-sso-save">保存</button>
             <button class="btn subtle" id="set-sso-test">测试连接</button>
             <button class="btn subtle" id="set-sso-logout">退出账号</button>
+            <button class="link" id="set-sso-advanced">自定义应用</button>
             <span class="tiny" id="set-sso-state"></span>
           </div>
           <p class="hint-text">登录入口在左上角头像 →「YiStarLine」标签页。</p>

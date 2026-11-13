@@ -39,6 +39,50 @@ function file() {
   return path.join(dataDir(), 'yistar.json');
 }
 
+// 打包时注入的「内置应用」凭据（sso-defaults.json），用户零配置
+let defaultsCache;
+function readDefaults() {
+  if (defaultsCache !== undefined) return defaultsCache;
+  const candidates = [];
+  if (process.resourcesPath) candidates.push(path.join(process.resourcesPath, 'sso-defaults.json'));
+  candidates.push(path.join(__dirname, 'sso-defaults.json'));
+  for (const candidate of candidates) {
+    try {
+      const json = JSON.parse(fs.readFileSync(candidate, 'utf8').replace(/\uFEFF/g, ''));
+      if (json && (json.publicCode || (json.appId && json.appSecret))) {
+        defaultsCache = json;
+        return json;
+      }
+    } catch {
+      /* 没有就算了 */
+    }
+  }
+  defaultsCache = null;
+  return null;
+}
+
+/** 生效配置：用户手填优先，否则用内置应用 */
+function effective() {
+  const cfg = load();
+  const def = readDefaults() || {};
+  const publicCode = String(cfg.publicCode || def.publicCode || '').trim().toUpperCase();
+  const appId = String(cfg.appId || def.appId || '').trim();
+  const appSecret = String(cfg.appSecret || def.appSecret || '').trim();
+  const name = String(cfg.name || def.name || 'Viskluke').trim();
+  const publisher = String(cfg.publisher || def.publisher || '').trim();
+  const baseUrl = String(cfg.baseUrl || def.baseUrl || DEFAULT_BASE).trim().replace(/\/+$/, '') || DEFAULT_BASE;
+  return {
+    publicCode,
+    appId,
+    appSecret,
+    name,
+    publisher,
+    baseUrl,
+    hasBuiltin: Boolean(publicCode || (def.appId && def.appSecret)),
+    usingBuiltin: Boolean(!cfg.publicCode && !(cfg.appId && cfg.appSecret) && (def.publicCode || (def.appId && def.appSecret))),
+  };
+}
+
 function load() {
   try {
     return JSON.parse(fs.readFileSync(file(), 'utf8').replace(/\uFEFF/g, ''));
@@ -58,14 +102,13 @@ function save(patch) {
 function baseUrl(cfg = load()) {
   return String(cfg.baseUrl || DEFAULT_BASE).trim().replace(/\/+$/, '') || DEFAULT_BASE;
 }
-
 async function request(method, pathname, body, options = {}) {
   const { token = '', appSecret = '' } = options;
   const headers = { accept: 'application/json' };
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (token) headers.authorization = `Bearer ${token}`;
   if (appSecret) headers['x-app-secret'] = appSecret;
-  const response = await fetch(`${baseUrl()}${pathname}`, {
+  const response = await fetch(`${effective().baseUrl}${pathname}`, {
     method,
     headers,
     body: body === undefined ? undefined : JSON.stringify(body),
@@ -98,11 +141,16 @@ function normalize(payload) {
 
 function status() {
   const cfg = load();
+  const eff = effective();
   return {
-    configured: Boolean(cfg.appId && cfg.appSecret),
-    baseUrl: baseUrl(cfg),
-    appId: cfg.appId || '',
-    hasSecret: Boolean(cfg.appSecret),
+    configured: Boolean(eff.publicCode || (eff.appId && eff.appSecret)),
+    hasBuiltin: eff.hasBuiltin,
+    usingBuiltin: eff.usingBuiltin,
+    baseUrl: eff.baseUrl,
+    appId: eff.appId,
+    publicCode: eff.publicCode,
+    name: eff.name,
+    hasSecret: Boolean(eff.appSecret),
     user: cfg.user || null,
     loggedIn: Boolean(cfg.accessToken && cfg.user),
   };
@@ -112,9 +160,15 @@ function saveConfig(payload = {}) {
   const patch = {};
   if (payload.baseUrl !== undefined) patch.baseUrl = String(payload.baseUrl).trim() || DEFAULT_BASE;
   if (payload.appId !== undefined) patch.appId = String(payload.appId).trim();
+  if (payload.publicCode !== undefined) patch.publicCode = String(payload.publicCode).trim().toUpperCase();
   if (payload.appSecret) patch.appSecret = String(payload.appSecret).trim();
   if (payload.clearSecret) patch.appSecret = '';
-  const next = save(patch);
+  if (payload.clearApp) {
+    patch.appId = '';
+    patch.appSecret = '';
+    patch.publicCode = '';
+  }
+  save(patch);
   return status();
 }
 
@@ -124,18 +178,22 @@ async function health() {
 }
 
 async function test() {
-  const cfg = load();
-  if (!cfg.appId || !cfg.appSecret) throw new Error('先填写 App ID 和 App Secret');
-  // 有些实现把 verify 做成失败时也返回 200 + ok:false，request 已统一处理
-  try {
-    return await request('POST', '/api/v1/app/verify', { app_id: cfg.appId, app_secret: cfg.appSecret }, {
-      appSecret: cfg.appSecret,
-    });
-  } catch (error) {
-    // 兼容只做 health 的服务：verify 不存在时退回 health
-    if (error.status === 404 || error.status === 405) return health();
-    throw error;
+  const eff = effective();
+  if (eff.appId && eff.appSecret) {
+    // 有密钥：走 verify，能确认「应用 ID + 密钥」匹配
+    try {
+      return await request('POST', '/api/v1/app/verify', { app_id: eff.appId, app_secret: eff.appSecret }, {
+        appSecret: eff.appSecret,
+      });
+    } catch (error) {
+      if (error.status !== 404 && error.status !== 405) throw error;
+    }
   }
+  if (eff.publicCode) {
+    // 只有应用码：用公开查询验证服务在线且认识这个应用
+    return request('GET', `/api/v1/apps/lookup?code=${encodeURIComponent(eff.publicCode)}`);
+  }
+  throw new Error('先配置应用码，或 App ID / App Secret');
 }
 
 function waitForCallback(server, timeoutMs) {
@@ -173,20 +231,47 @@ function openBrowser(url) {
 
 async function login(options = {}) {
   const { onLog = () => {} } = options;
-  const cfg = load();
-  if (!cfg.appId || !cfg.appSecret) throw new Error('先在「设置 → YiStarLine 账号」里填写 App ID / App Secret');
+  const eff = effective();
+  if (!eff.publicCode && !(eff.appId && eff.appSecret)) {
+    throw new Error('先在「设置 → YiStarLine 账号」里填写应用码（或 App ID / App Secret）');
+  }
   const state = crypto.randomBytes(16).toString('hex');
 
+  // 回调必须用白名单里的固定端口：Account 的 {port} 展开成它自己的 8600，不是通配
+  const ports = Array.isArray(options.ports) && options.ports.length ? options.ports : [47830, 47831, 47832];
   const server = http.createServer();
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(0, '127.0.0.1', resolve);
-  });
-  const port = server.address().port;
+  let port = 0;
+  for (const candidate of ports) {
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (error) => {
+          server.removeListener('error', onError);
+          reject(error);
+        };
+        server.once('error', onError);
+        server.listen(candidate, '127.0.0.1', () => {
+          server.removeListener('error', onError);
+          resolve();
+        });
+      });
+      port = candidate;
+      break;
+    } catch (error) {
+      if (error.code !== 'EADDRINUSE') throw error;
+      onLog(`[SSO] 回调端口 ${candidate} 被占用，试下一个`);
+    }
+  }
+  if (!port) throw new Error(`回调端口 ${ports.join(' / ')} 都被占用，请关闭占用程序后重试`);
+
   const redirectUri = `http://127.0.0.1:${port}/sso/callback`;
-  const authorizeUrl =
-    `${baseUrl(cfg)}/sso/authorize?app_id=${encodeURIComponent(cfg.appId)}` +
-    `&redirect_uri=${encodeURIComponent(redirectUri)}&state=${encodeURIComponent(state)}`;
+  const params = new URLSearchParams();
+  if (eff.publicCode) params.set('code', eff.publicCode);
+  if (eff.appId) params.set('app_id', eff.appId);
+  if (eff.name) params.set('name', eff.name);
+  if (eff.publisher) params.set('publisher', eff.publisher);
+  params.set('redirect_uri', redirectUri);
+  params.set('state', state);
+  const authorizeUrl = `${eff.baseUrl}/sso/authorize?${params.toString()}`;
 
   onLog(`[SSO] 打开授权页：${authorizeUrl}`);
   const callback = waitForCallback(server, TIMEOUT_MS);
@@ -201,12 +286,26 @@ async function login(options = {}) {
     server.close();
   }
 
-  const payload = await request(
-    'POST',
-    '/api/v1/ticket/redeem',
-    { app_id: cfg.appId, app_secret: cfg.appSecret, ticket },
-    { appSecret: cfg.appSecret }
-  );
+  // 优先用应用码兑换（别人机器首次授权后是 imported 应用，不需要 secret）；
+  // 失败再回退 app_id + app_secret（开发者本机是 managed 应用）。
+  let payload;
+  if (eff.publicCode) {
+    try {
+      payload = await request('POST', '/api/v1/ticket/redeem', { client_id: eff.publicCode, ticket });
+    } catch (error) {
+      if (!eff.appId || !eff.appSecret) throw error;
+      onLog(`[SSO] 应用码兑换失败（${error.code || error.message}），改用 app_id + app_secret`);
+    }
+  }
+  if (!payload) {
+    if (!eff.appId || !eff.appSecret) throw new Error('这个应用需要 App Secret 才能兑换票据');
+    payload = await request(
+      'POST',
+      '/api/v1/ticket/redeem',
+      { app_id: eff.appId, app_secret: eff.appSecret, ticket },
+      { appSecret: eff.appSecret }
+    );
+  }
   const { user, token } = normalize(payload);
   if (!token && !user) throw Object.assign(new Error('兑换响应里没有用户或令牌'), { code: 'bad_response' });
 

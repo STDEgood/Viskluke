@@ -26,3 +26,7 @@ Thumbs.db
 
 # YiStarLine SSO 本机凭据（绝不提交）
 yistar.json
+
+# SSO 内置应用凭据（构建时注入，绝不提交）
+config.sso.local.json
+sso-defaults.json

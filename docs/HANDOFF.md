@@ -555,3 +555,19 @@ npm run package:dir   :: 只出免安装目录
   `user|profile|account`）；若实际返回结构不同，改 `normalize()` 即可。
 - 未验证项：本机当前没有 8600 服务，SSO 完整链路（授权/兑换/用户信息）需要用户在本机启动
   YiStarLine Account 并填真实 App Secret 后实测。
+
+
+### 11.8 1.2.1：YiStarLine 内置应用（应用码）+ 固定回调端口
+
+- **应用码（public_code）**：`YLP-Y6AE-SC5X-JFE3`，内置到 `sso-defaults.json`（构建时由 `config.sso.local.json` 注入，
+  该文件被 .gitignore 忽略），**不打包 app_secret**。
+- **固定回调端口**：`47830/47831/47832`。原因：Account 的 `match_redirect` 会把白名单里的 `{port}`
+  展开成**服务自己的端口**（8600），不是通配；第三方桌面应用必须用白名单里的精确端口。
+- **授权参数**：`code=应用码&app_id=...&name=Viskluke&publisher=StarDegree&redirect_uri=...&state=...`。
+  本机已登记（managed）时走 app_id；别人机器（未登记）时自动落到「首次使用此应用」确认页，
+  用户点「允许」后 `create_imported_app` 登记为 imported。
+- **兑换顺序**：先 `{client_id: 应用码, ticket}`（imported 应用免 secret）；
+  失败且配置了 app_id/app_secret 时回退 `{app_id, app_secret, ticket}`（开发者本机 managed 应用）。
+- **测试连接**：有 secret → `/api/v1/app/verify`；只有应用码 → `/api/v1/apps/lookup?code=`。
+- 已验证：`/api/v1/apps/lookup?code=YLP-Y6AE-SC5X-JFE3` 返回 Viskluke / StarDegree / Protect 证书信息。
+- 待验证：从「首次授权」到「兑换」的完整交互链路（需要浏览器里登录 YAUA 并点允许）。

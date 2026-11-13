@@ -179,6 +179,7 @@
     dlTab: 'versions',
     dlBusy: false,
     lastRoot: '',
+    ssoAdvanced: false,
   };
 
   // =========================================================================
@@ -304,6 +305,9 @@
             $('yl-user').textContent = `账号：${status.user.nickname || status.user.username || status.user.name || ''}`;
           } else if (status && !status.configured) {
             $('yl-status').textContent = '还没配置：到「设置 → YiStarLine 账号」填 App ID / App Secret。';
+          } else {
+            $('yl-status').textContent = '点下面按钮，浏览器会打开 YiStarLine 授权页。';
+            $('yl-user').textContent = '';
           }
         })
         .catch(() => {});
@@ -2759,7 +2763,14 @@
   async function refreshSsoPanel() {
     try {
       const status = await api.yistarStatus();
+      const builtin = Boolean(status.hasBuiltin);
+      const showManual = !builtin || state.ssoAdvanced;
+      $('sso-manual').classList.toggle('hidden', !showManual);
+      $('set-sso-builtin-hint').textContent = builtin
+        ? '已内置 Viskluke 官方应用：不用填 App ID / Secret，点头像 →「YiStarLine」一键登录即可。'
+        : '接入本机 YiStarLine Account（默认 127.0.0.1:8600）。App Secret 只存本机，不会进仓库。';
       $('set-sso-base').value = status.baseUrl || '';
+      $('set-sso-code').value = status.publicCode || '';
       $('set-sso-appid').value = status.appId || '';
       $('set-sso-secret').value = '';
       $('set-sso-secret').placeholder = status.hasSecret ? '已保存（留空保持不变）' : 'ylsec_...';
@@ -2767,16 +2778,23 @@
       $('set-sso-state').textContent = status.loggedIn
         ? `已登录：${who || 'YiStarLine'}`
         : status.configured
-          ? '已配置，未登录'
+          ? builtin
+            ? '已就绪，未登录'
+            : '已配置，未登录'
           : '未配置';
     } catch (error) {
       $('set-sso-state').textContent = `读取失败：${error.message || error}`;
     }
   }
+  $('set-sso-advanced').addEventListener('click', () => {
+    state.ssoAdvanced = !state.ssoAdvanced;
+    refreshSsoPanel();
+  });
   $('set-sso-save').addEventListener('click', async () => {
     try {
       await api.yistarConfig({
         baseUrl: $('set-sso-base').value.trim(),
+        publicCode: $('set-sso-code').value.trim(),
         appId: $('set-sso-appid').value.trim(),
         appSecret: $('set-sso-secret').value.trim(),
       });

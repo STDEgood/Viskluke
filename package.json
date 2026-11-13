@@ -1,6 +1,6 @@
 {
   "name": "viskluke-launcher",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Viskluke Launcher —— Minecraft 启动器 / 一键开服 / Viskluke Address 自定义域名",
   "author": "Viskluke",
   "license": "MIT",
@@ -83,7 +83,13 @@
     "linux": {
       "target": "AppImage",
       "icon": "build/icon.png"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "sso-defaults.json",
+        "to": "sso-defaults.json"
+      }
+    ]
   },
   "allowScripts": {
     "electron@33.4.11": true
