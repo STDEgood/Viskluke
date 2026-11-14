@@ -41,7 +41,7 @@ gradlew assembleDebug     # 或 assembleRelease
 
 产物：`app_pojavlauncher/build/outputs/apk/debug/app_pojavlauncher-debug.apk`
 
-## 品牌化（1.0.1）`r`n`r`n- 主色从 Pojav 绿改成 Viskluke 青绿（`#0F9D8F`）`r`n- 深色背景改成 Viskluke 的 `#0B1220` / `#0E1526``r`n- 应用名、图标、包名、签名同 1.0.0`r`n`r`n## 已验证
+## 1.1.0：Viskluke 首页`r`n`r`n- 新增 `VisklukeHomeActivity`（WebView，assets/viskluke）作为启动入口`r`n- 首页：启动游戏 / 启动器 / 关于，青绿主题`r`n- 点「启动游戏」进入内置引擎（Pojav 原有界面）`r`n`r`n## 品牌化（1.0.1）`r`n`r`n- 主色从 Pojav 绿改成 Viskluke 青绿（`#0F9D8F`）`r`n- 深色背景改成 Viskluke 的 `#0B1220` / `#0E1526``r`n- 应用名、图标、包名、签名同 1.0.0`r`n`r`n## 已验证
 
 - APK 可安装、可启动（Android 15 模拟器，x86_64）
 - 启动后进入 Java 版启动界面：添加账号、版本列表、PLAY
