@@ -25,6 +25,8 @@ const { app } = require('electron');
 const loader = require('./loader');
 const mirror = require('./mirror');
 const java = require('./java');
+const settings = require('./settings');
+const datadrive = require('./datadrive');
 
 const SUB_DIRS = ['versions', 'mods', 'resourcepacks', 'shaderpacks', 'saves', 'logs'];
 
@@ -128,6 +130,16 @@ async function launch(config, win) {
   const instance = config.instance || { id: config.instanceId, name: config.instanceName };
   const { root } = ensureGameRoot(instance);
   safeSend(win, 'launch:log', `[Viskluke] 游戏目录：${root}`);
+
+  // YiStarLine 登录时，把存档放到 YAUA 的独立数据盘（junction）
+  if (account.via === 'yistar' && settings.read().yauaSaves !== false) {
+    try {
+      const linked = datadrive.linkInstanceSaves(root, instance.id || instance.name);
+      if (linked.ok) safeSend(win, 'launch:log', `[Viskluke] 存档目录：${linked.target}（YAUA 独立盘）`);
+    } catch (error) {
+      safeSend(win, 'launch:log', `[Viskluke] 存档迁移失败：${error.message}`);
+    }
+  }
 
   // ---- 加载器（整合包实例）----
   // Fabric / Quilt：自己生成 versions/<id>/<id>.json，用 MCLC 的 version.custom 启动。

@@ -30,6 +30,8 @@ const DEFAULTS = {
   remoteEnabled: false,
   remotePort: 47821,
   remoteToken: '',
+  // YiStarLine 登录时把 Minecraft 存档放进 YAUA 独立数据盘
+  yauaSaves: true,
   // 内置浏览器首页 / 搜索（默认 Bing）
   browserHome: 'https://www.bing.com',
 };

@@ -2774,6 +2774,14 @@
       $('set-sso-appid').value = status.appId || '';
       $('set-sso-secret').value = '';
       $('set-sso-secret').placeholder = status.hasSecret ? '已保存（留空保持不变）' : 'ylsec_...';
+      try {
+        const drive = await api.datadriveStatus();
+        $('set-datadrive').textContent = drive && drive.available
+          ? `存档盘：${drive.drive} 独立盘 → ${drive.saves}`
+          : '存档盘：未检测到 YAUA 独立盘（存档留在实例目录）';
+      } catch {
+        $('set-datadrive').textContent = '存档盘：检测失败';
+      }
       const who = status.user && (status.user.nickname || status.user.username || status.user.name || '');
       $('set-sso-state').textContent = status.loggedIn
         ? `已登录：${who || 'YiStarLine'}`

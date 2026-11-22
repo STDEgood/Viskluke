@@ -28,6 +28,7 @@ contextBridge.exposeInMainWorld('viskluke', {
   yistarTest: () => ipcRenderer.invoke('yistar:test'),
   yistarLogin: () => ipcRenderer.invoke('yistar:login'),
   yistarLogout: () => ipcRenderer.invoke('yistar:logout'),
+  datadriveStatus: () => ipcRenderer.invoke('datadrive:status'),
   launch: (config) => ipcRenderer.invoke('launch:start', config),
   openGameRoot: (instance) => ipcRenderer.invoke('launch:open-root', instance),
 

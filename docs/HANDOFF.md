@@ -582,3 +582,13 @@ npm run package:dir   :: 只出免安装目录
 - 兜底：没有 BrowserWindow 的环境仍回退「系统浏览器 + 本地临时服务」。
 - 验证：CDP 探针触发登录后出现新窗口，URL 为
   `http://127.0.0.1:8600/#/login?...&app=Viskluke`，说明窗口加载成功、应用识别正常。
+
+### 11.10 1.3.2：YiStarLine 存档放 YAUA 独立盘
+
+- YAUA 的 datadrive 功能会把账户目录搬到独立分区（日志：`D:\saves`）。
+- 新增 `datadrive.js`：自动发现 YAUA 根目录/盘符（`%USERPROFILE%\YiStarLineAccount` 或 `<盘>:\Account`），
+  找到可写的存档根（`<盘>:\saves`）。
+- 启动时若账号来自 YiStarLine（`account.via === 'yistar'`）且 `yauaSaves` 开启：
+  把实例的 `saves` 做成 junction 指向 `<盘>:\saves\<实例>`；已有存档先复制过去，原目录改名 `saves.local-<时间戳>`。
+- 设置页显示检测结果（盘符 + 存档路径）。
+- 验证：临时目录测试通过（复制 + junction + 幂等）；本机检测到 `D:\saves`。

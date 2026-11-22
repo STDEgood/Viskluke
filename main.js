@@ -283,6 +283,7 @@ const mirror = require('./mirror');
 const java = require('./java');
 const remote = require('./remote');
 const sso = require('./yistar-sso');
+const datadrive = require('./datadrive');
 
 // 中继（内网穿透）运行时状态：同一时刻各一个
 let relayHost = null;
@@ -1377,6 +1378,9 @@ function registerIpc() {
     settings.write({ remoteEnabled: false });
     return stopRemoteControl();
   });
+
+  // ---------- YAUA 独立数据盘 ----------
+  handle('datadrive:status', () => datadrive.status());
 
   // ---------- YiStarLine 账号（本机 SSO）----------
   handle('yistar:status', () => sso.status());
